@@ -2,13 +2,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@/lib/supabase-client';
 import { User } from '@/lib/types';
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const supabase = createClientComponentClient();
+  const supabase = createClient();
 
   useEffect(() => {
     // בדיקת משתמש נוכחי

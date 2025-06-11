@@ -1,15 +1,22 @@
 // src/app/api/public/[slug]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { supabasePublic } from '@/lib/supabase-public';
+import { rateLimit } from '@/lib/rate-limit';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { slug: string } }
 ) {
+
+  // Rate limit configuration
+  const clientIp = request.headers.get('x-forwarded-for') || 'unknown';
+  if (!rateLimit(clientIp, 20, 60000)) { // 20 בקשות לדקה
+    return NextResponse.json({ error: 'יותר מדי בקשות' }, { status: 429 });
+  }
+
   try {
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
-    const { slug } = params;
+    const supabase = supabasePublic;
+    const { slug } = await params;
 
     // שליפת פרטי העסק לפי slug
     const { data: business, error: businessError } = await supabase

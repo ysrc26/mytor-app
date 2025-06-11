@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@/lib/supabase-client';
 import { useRouter } from 'next/navigation';
 import { User } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,7 @@ export default function ProfilePage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClient();
 
   useEffect(() => {
     checkAuth();
@@ -239,7 +239,7 @@ export default function ProfilePage() {
             <div className="flex items-center gap-4">
               <Button
                 variant="outline"
-                onClick={() => router.push('/dashboard')}
+                onClick={() => router.push('/dashboard/redirect')}
                 className="p-2"
               >
                 <ArrowLeft className="w-4 h-4" />
@@ -396,7 +396,7 @@ export default function ProfilePage() {
             <div className="flex gap-4 pt-6 border-t border-gray-200">
               <Button
                 variant="outline"
-                onClick={() => router.push('/dashboard')}
+                onClick={() => router.push('/dashboard/redirect')}
                 className="flex-1"
               >
                 ביטול

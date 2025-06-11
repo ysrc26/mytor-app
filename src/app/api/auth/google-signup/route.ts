@@ -1,13 +1,12 @@
 // src/app/api/auth/google-signup/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
 
 export async function POST(request: NextRequest) {
   try {
     const { user_id, email, full_name, profile_pic } = await request.json();
     
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = await createClient();
     
     // בדיקה שהמשתמש לא קיים כבר
     const { data: existingUser } = await supabase

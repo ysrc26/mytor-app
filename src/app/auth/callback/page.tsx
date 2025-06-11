@@ -3,7 +3,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@/lib/supabase-client';
 import { Calendar, CheckCircle, AlertCircle } from 'lucide-react';
 
 function AuthCallbackContent() {
@@ -11,7 +11,7 @@ function AuthCallbackContent() {
   const [error, setError] = useState('');
   const router = useRouter();
   const searchParams = useSearchParams();
-  const supabase = createClientComponentClient();
+  const supabase = createClient();
 
   useEffect(() => {
     const handleAuthCallback = async () => {
@@ -54,7 +54,7 @@ function AuthCallbackContent() {
           }
 
           // הפניה לדשבורד
-          router.push('/dashboard');
+          router.push('/dashboard/redirect');
         } else {
           setError('לא התקבלו פרטי משתמש. אנא נסה שנית.');
           setLoading(false);

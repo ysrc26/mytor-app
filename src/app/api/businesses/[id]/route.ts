@@ -1,24 +1,26 @@
 // src/app/api/businesses/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
-    
+    const resolvedParams = await params;
+    const supabase = await createClient();
+
+    // authentication check
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'לא מורשה' }, { status: 401 });
     }
 
+    // בדיקה שהמשתמש הוא הבעלים של העסק
     const { data: business, error } = await supabase
       .from('businesses')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', resolvedParams.id)
       .eq('user_id', user.id)
       .single();
 
@@ -35,22 +37,24 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
-    
+    const resolvedParams = await params;
+    const body = await request.json();
+
+    const supabase = await createClient();
+
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'לא מורשה' }, { status: 401 });
     }
 
-    const updates = await request.json();
-
+    // עדכון העסק
     const { data: business, error } = await supabase
       .from('businesses')
-      .update(updates)
-      .eq('id', params.id)
+      .update(body)
+      .eq('id', resolvedParams.id)
       .eq('user_id', user.id)
       .select()
       .single();

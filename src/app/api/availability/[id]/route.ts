@@ -1,14 +1,14 @@
 // src/app/api/availability/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerComponentClient({ cookies });
+    const supabase = await createClient();
+    const resolvedParams = await params;
     
     // בדיקת authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -19,7 +19,7 @@ export async function PATCH(
       );
     }
 
-    const { id } = params;
+    const { id } = resolvedParams;
     const body = await request.json();
     const { day_of_week, start_time, end_time, is_active } = body;
 
@@ -82,10 +82,11 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerComponentClient({ cookies });
+    const supabase = await createClient();
+    const resolvedParams = await params;
     
     // בדיקת authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -96,7 +97,7 @@ export async function DELETE(
       );
     }
 
-    const { id } = params;
+    const { id } = resolvedParams;
 
     // בדיקה שהזמינות שייכת למשתמש
     const { data: existingAvailability, error: fetchError } = await supabase

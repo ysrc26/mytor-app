@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import BusinessBooking from '@/components/ui/BusinessBooking';
 import { Calendar, Clock, Phone, User, MessageCircle, CheckCircle, AlertCircle, Sparkles } from 'lucide-react';
 import { User as UserType, Availability, Business, Service } from '@/lib/types';
 
@@ -116,6 +117,18 @@ export default function BusinessPage() {
       });
 
     return slots.sort((a, b) => a.dayNum - b.dayNum);
+  };
+
+  // פונקציה להצגת משך השירות בטקסט ידידותי
+  const formatDuration = (minutes: number): string => {
+    if (minutes < 60) return `${minutes} דקות`;
+    if (minutes % 60 === 0) {
+      const hours = minutes / 60;
+      return hours === 1 ? 'שעה' : `${hours} שעות`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return hours === 1 ? `שעה ו${remainingMinutes} דקות` : `${hours} שעות ו${remainingMinutes} דקות`;
   };
 
   const parseTime = (timeStr: string) => {
@@ -334,8 +347,8 @@ export default function BusinessPage() {
                   <div
                     key={service.id}
                     className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedService?.id === service.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-blue-300'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
                       }`}
                     onClick={() => setSelectedService(
                       selectedService?.id === service.id ? null : service
@@ -351,7 +364,7 @@ export default function BusinessPage() {
                       <p className="text-sm text-gray-600 mb-2">{service.description}</p>
                     )}
                     <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>{service.duration_minutes} דקות</span>
+                      <span>{formatDuration(service.duration_minutes)}</span>
                       {selectedService?.id === service.id && (
                         <span className="text-blue-600 font-medium">✓ נבחר</span>
                       )}
@@ -364,14 +377,13 @@ export default function BusinessPage() {
                   <p className="text-blue-800 text-sm">
                     <strong>נבחר:</strong> {selectedService.name}
                     {selectedService.price && ` (₪${selectedService.price})`}
-                    {` - ${selectedService.duration_minutes} דקות`}
+                    {` - ${formatDuration(selectedService.duration_minutes)}`}
                   </p>
                 </div>
               )}
             </CardContent>
           </Card>
         )}
-
         {/* זמני פעילות */}
         <Card className="mb-6">
           <CardHeader>
@@ -409,21 +421,7 @@ export default function BusinessPage() {
           </CardContent>
         </Card>
 
-        {/* תנאים */}
-        {businessData.business.terms && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>תנאים</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-wrap">
-                {businessData.business.terms}
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* כפתור בקשת תור */}
+        {/* כפתור בקשת תור - עם מודל BusinessBooking */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button
@@ -436,180 +434,27 @@ export default function BusinessPage() {
             </Button>
           </DialogTrigger>
 
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>בקשת תור</DialogTitle>
+              <DialogTitle>בקשת תור ב{businessData.business.name}</DialogTitle>
               <DialogDescription>
-                {showOTP ? 'הזן את הקוד שנשלח אליך' : 'מלא את הפרטים לבקשת תור'}
+                {selectedService
+                  ? `בחר תאריך ושעה לשירות ${selectedService.name}`
+                  : 'בחר שירות, תאריך ושעה'
+                }
               </DialogDescription>
             </DialogHeader>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {!showOTP ? (
-                <>
-                  {/* שם */}
-                  <div>
-                    <Label htmlFor="name">שם מלא *</Label>
-                    <Input
-                      id="name"
-                      value={appointmentRequest.client_name}
-                      onChange={(e) => setAppointmentRequest({
-                        ...appointmentRequest,
-                        client_name: e.target.value
-                      })}
-                      placeholder="השם שלך"
-                      required
-                    />
-                  </div>
-
-                  {/* טלפון */}
-                  <div>
-                    <Label htmlFor="phone">מספר טלפון *</Label>
-                    <Input
-                      id="phone"
-                      type="tel"
-                      value={appointmentRequest.client_phone}
-                      onChange={(e) => setAppointmentRequest({
-                        ...appointmentRequest,
-                        client_phone: e.target.value
-                      })}
-                      placeholder="05xxxxxxxx"
-                      required
-                    />
-                  </div>
-
-                  {/* תאריך */}
-                  <div>
-                    <Label htmlFor="date">תאריך מועדף *</Label>
-                    <select
-                      id="date"
-                      className="w-full p-2 border border-gray-300 rounded-md"
-                      value={appointmentRequest.date}
-                      onChange={(e) => setAppointmentRequest({
-                        ...appointmentRequest,
-                        date: e.target.value,
-                        time: '' // איפוס השעה כשמשנים תאריך
-                      })}
-                      required
-                    >
-                      <option value="">בחר יום</option>
-                      {availableSlots.map((slot, index) => (
-                        <option key={index} value={slot.dayNum.toString()}>
-                          {slot.day}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* שעה */}
-                  {appointmentRequest.date && (
-                    <div>
-                      <Label htmlFor="time">שעה מועדפת *</Label>
-                      <select
-                        id="time"
-                        className="w-full p-2 border border-gray-300 rounded-md"
-                        value={appointmentRequest.time}
-                        onChange={(e) => setAppointmentRequest({
-                          ...appointmentRequest,
-                          time: e.target.value
-                        })}
-                        required
-                      >
-                        <option value="">בחר שעה</option>
-                        {availableSlots.find(slot => slot.dayNum.toString() === appointmentRequest.date)?.times.map((time, index) => (
-                          <option key={index} value={time}>
-                            {time}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* הערה */}
-                  <div>
-                    <Label htmlFor="note">הערה (אופציונלי)</Label>
-                    <Textarea
-                      id="note"
-                      value={appointmentRequest.note}
-                      onChange={(e) => setAppointmentRequest({
-                        ...appointmentRequest,
-                        note: e.target.value
-                      })}
-                      placeholder="פרטים נוספים או בקשות מיוחדות"
-                      rows={3}
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* קוד OTP */}
-                  <div>
-                    <Label htmlFor="otp">קוד אימות</Label>
-                    <Input
-                      id="otp"
-                      value={otpStep.code}
-                      onChange={(e) => setOtpStep({
-                        ...otpStep,
-                        code: e.target.value
-                      })}
-                      placeholder="הזן 4 ספרות"
-                      maxLength={4}
-                      required
-                    />
-                    <p className="text-sm text-gray-500 mt-1">
-                      נשלח קוד ל-{otpStep.phone}
-                    </p>
-                  </div>
-
-                  {/* שליחה מחדש */}
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => sendOTP('sms')}
-                      disabled={otpSending}
-                    >
-                      שלח SMS מחדש
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => sendOTP('call')}
-                      disabled={otpSending}
-                    >
-                      התקשר אליי
-                    </Button>
-                  </div>
-                </>
-              )}
-
-              {/* כפתורי פעולה */}
-              <div className="flex gap-3 pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setDialogOpen(false);
-                    setShowOTP(false);
-                    setError(null);
-                  }}
-                  className="flex-1"
-                >
-                  ביטול
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={submitting || otpSending || otpVerifying}
-                  className="flex-1 bg-blue-500 hover:bg-blue-600"
-                >
-                  {submitting || otpVerifying ? 'שולח...' :
-                    otpSending ? 'שולח קוד...' :
-                      showOTP ? 'אמת ושלח' : 'קבל קוד אימות'}
-                </Button>
-              </div>
-            </form>
+            <div className="py-4">
+              <BusinessBooking
+                businessSlug={businessData.business.slug}
+                businessName={businessData.business.name}
+                services={selectedService ? [selectedService] : businessData.services}
+                availability={businessData.availability}
+                businessTerms={businessData.business.terms}
+                onClose={() => setDialogOpen(false)}
+              />
+            </div>
           </DialogContent>
         </Dialog>
       </div>

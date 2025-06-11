@@ -1,14 +1,14 @@
 // src/app/api/businesses/[id]/availability/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerComponentClient({ cookies:() => cookies() });
+    const supabase = await createClient();
+    const resolvedParams = await params;
     
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -18,7 +18,7 @@ export async function GET(
     const { data: availability, error } = await supabase
       .from('availability')
       .select('*')
-      .eq('business_id', params.id)
+      .eq('business_id', resolvedParams.id)
       .order('day_of_week');
 
     if (error) {
@@ -34,10 +34,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerComponentClient({ cookies:() => cookies() });
+    const supabase = await createClient();
+    const resolvedParams = await params;
     
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -49,7 +50,7 @@ export async function POST(
     const { data: availability, error } = await supabase
       .from('availability')
       .insert({
-        business_id: params.id,
+        business_id: resolvedParams.id,
         day_of_week,
         start_time,
         end_time,

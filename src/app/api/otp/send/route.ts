@@ -1,11 +1,17 @@
 // src/app/api/otp/send/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { supabasePublic } from '@/lib/supabase-public';
+import { rateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
+  // Rate limiting - 3 בקשות לדקה לOTP
+  const clientIp = request.headers.get('x-forwarded-for') || 'unknown';
+  if (!rateLimit(clientIp, 3, 60000)) {
+    return NextResponse.json({ error: 'יותר מדי בקשות לקוד אימות' }, { status: 429 });
+  }
+
   try {
-    const supabase = createServerComponentClient({ cookies });
+    const supabase = supabasePublic;
     const body = await request.json();
 
     const { phone, method = 'sms' } = body;
@@ -26,7 +32,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // בדיקת הגבלת זמן (rate limiting) - לא יותר מקוד אחד בדקה
+    // בדיקת הגבלת זמן - לא יותר מקוד אחד בדקה
     const oneMinuteAgo = new Date(Date.now() - 60 * 1000).toISOString();
     const { data: recentOtp } = await supabase
       .from('otp_verifications')
@@ -43,8 +49,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // יצירת קוד אקראי 4 ספרות
-    const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+    // יצירת קוד אקראי 6 ספרות
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
     // שמירת הקוד בבסיס הנתונים
     const { error: insertError } = await supabase
@@ -94,16 +100,16 @@ async function sendSMS(phone: string, code: string) {
   // לצורך הדוגמה - לוג בלבד
   console.log(`SMS to ${phone}: ${message}`);
 
-  // דוגמה עם Twilio:
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const client = require('twilio')(accountSid, authToken);
+  // // דוגמה עם Twilio:
+  // const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  // const authToken = process.env.TWILIO_AUTH_TOKEN;
+  // const client = require('twilio')(accountSid, authToken);
 
-  await client.messages.create({
-    body: message,
-    from: process.env.TWILIO_PHONE_NUMBER,
-    to: `+972${phone.substring(1)}` // המרה לפורמט בינלאומי
-  });
+  // await client.messages.create({
+  //   body: message,
+  //   from: process.env.TWILIO_PHONE_NUMBER,
+  //   to: `+972${phone.substring(1)}` // המרה לפורמט בינלאומי
+  // });
 }
 
 // פונקציה לשיחה קולית
@@ -114,15 +120,15 @@ async function makeVoiceCall(phone: string, code: string) {
 
   console.log(`Voice call to ${phone}: ${message}`);
 
-  // דוגמה עם Twilio Voice:
+  // // דוגמה עם Twilio Voice:
 
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const client = require('twilio')(accountSid, authToken);
+  // const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  // const authToken = process.env.TWILIO_AUTH_TOKEN;
+  // const client = require('twilio')(accountSid, authToken);
 
-  await client.calls.create({
-    twiml: `<Response><Say language="he-IL">${message}</Say></Response>`,
-    from: process.env.TWILIO_PHONE_NUMBER,
-    to: `+972${phone.substring(1)}`
-  });
+  // await client.calls.create({
+  //   twiml: `<Response><Say language="he-IL">${message}</Say></Response>`,
+  //   from: process.env.TWILIO_PHONE_NUMBER,
+  //   to: `+972${phone.substring(1)}`
+  // });
 }

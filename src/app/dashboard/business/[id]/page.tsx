@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@/lib/supabase-client';
 import { useRouter, useParams } from 'next/navigation';
 import { Business, Service, Appointment, Availability, User } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import AvailabilityTable from '@/components/ui/AvailabilityTable';
 import { generateUniqueSlug } from '@/lib/slugUtils';
 import {
     Calendar,
@@ -26,13 +27,17 @@ import {
     Plus,
     Bell,
     CreditCard,
+    ChevronDown,
     ExternalLink,
     LogOut,
     Sparkles,
     ArrowLeft,
     CheckCircle,
     AlertCircle,
-    Loader2
+    Loader2,
+    ChevronLeft,
+    Menu,
+    X
 } from 'lucide-react';
 
 export default function BusinessDashboard() {
@@ -45,10 +50,69 @@ export default function BusinessDashboard() {
     const [availability, setAvailability] = useState<Availability[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'appointments' | 'services' | 'profile' | 'availability' | 'premium'>('overview');
+    const [activeTab, setActiveTab] = useState<'pending' | 'calendar' | 'appointments' | 'premium'>('pending');
+    const [sideNavOpen, setSideNavOpen] = useState(false);
+    const [modalOpen, setModalOpen] = useState(false);
+    const [modalContent, setModalContent] = useState<'services' | 'profile' | 'availability' | null>(null);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+
+
+    // סגירת side navigation
+    const closeSideNav = () => {
+        setSideNavOpen(false);
+    };
+
+    // פונקציה לטיפול בלחיצה על overlay
+    const handleOverlayClick = () => {
+        closeSideNav();
+    };
+
+    // פונקציה לטיפול במקש ESC
+    useEffect(() => {
+        const handleEscKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && sideNavOpen) {
+                closeSideNav();
+            }
+        };
+
+        document.addEventListener('keydown', handleEscKey);
+        return () => {
+            document.removeEventListener('keydown', handleEscKey);
+        };
+    }, [sideNavOpen]);
+
+    // פתיחת modal עם תוכן ספציפי
+    const openModal = (content: 'services' | 'profile' | 'availability') => {
+        setModalContent(content);
+        setModalOpen(true);
+        // לא סוגרים את הניווט - נשאר פתוח אבל מטושטש
+    };
+
+    // סגירת modal
+    const closeModal = () => {
+        setModalOpen(false);
+        setModalContent(null);
+    };
+
+    // פונקציה לטיפול במקש ESC למודל
+    useEffect(() => {
+        const handleEscKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                if (modalOpen) {
+                    closeModal(); // סוגר קודם את המודל
+                } else if (sideNavOpen) {
+                    closeSideNav(); // אם אין מודל, סוגר את הניווט
+                }
+            }
+        };
+
+        document.addEventListener('keydown', handleEscKey);
+        return () => {
+            document.removeEventListener('keydown', handleEscKey);
+        };
+    }, [modalOpen, sideNavOpen]);
 
     // עריכת עסק
     const [editedBusiness, setEditedBusiness] = useState({
@@ -74,7 +138,7 @@ export default function BusinessDashboard() {
     });
 
     const router = useRouter();
-    const supabase = createClientComponentClient();
+    const supabase = createClient();
 
     useEffect(() => {
         if (businessId) {
@@ -108,7 +172,7 @@ export default function BusinessDashboard() {
                     terms: data.terms || ''
                 });
             } else if (response.status === 404) {
-                router.push('/dashboard');
+                router.push('/dashboard/redirect');
             }
         } catch (error) {
             console.error('Error fetching business:', error);
@@ -192,6 +256,7 @@ export default function BusinessDashboard() {
         }
     };
 
+    // פונקציה ליצירת slug ייחודי
     const generateSlug = async () => {
         if (!editedBusiness.name.trim()) {
             setError('יש למלא שם עסק קודם');
@@ -312,6 +377,18 @@ export default function BusinessDashboard() {
         }
     };
 
+    // פונקציה להצגת משך השירות בטקסט ידידותי
+    const formatDuration = (minutes: number): string => {
+        if (minutes < 60) return `${minutes} דקות`;
+        if (minutes % 60 === 0) {
+            const hours = minutes / 60;
+            return hours === 1 ? 'שעה' : `${hours} שעות`;
+        }
+        const hours = Math.floor(minutes / 60);
+        const remainingMinutes = minutes % 60;
+        return hours === 1 ? `שעה ו${remainingMinutes} דקות` : `${hours} שעות ו${remainingMinutes} דקות`;
+    };
+
     const handleLogout = async () => {
         await supabase.auth.signOut();
         router.push('/');
@@ -382,6 +459,41 @@ export default function BusinessDashboard() {
     const confirmedCount = appointments.filter(apt => apt.status === 'confirmed').length;
     const totalAppointments = appointments.length;
 
+    // פונקציה לעדכון סטטוס תור
+    const updateAppointmentStatus = async (appointmentId: string, newStatus: 'confirmed' | 'declined' | 'cancelled') => {
+        try {
+            const response = await fetch(`/api/appointments/${appointmentId}/status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'שגיאה בעדכון סטטוס התור');
+            }
+
+            // עדכון מקומי של הרשימה
+            setAppointments(appointments.map(apt =>
+                apt.id === appointmentId
+                    ? { ...apt, status: newStatus }
+                    : apt
+            ));
+
+            // הודעת הצלחה
+            const statusText = {
+                'confirmed': 'אושר',
+                'declined': 'נדחה',
+                'cancelled': 'בוטל'
+            }[newStatus];
+
+            setSuccess(`התור ${statusText} בהצלחה`);
+
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'שגיאה בעדכון סטטוס התור');
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" style={{ fontFamily: "'Heebo', 'Assistant', sans-serif", direction: 'rtl' }}>
             {/* Header */}
@@ -389,13 +501,15 @@ export default function BusinessDashboard() {
                 <div className="max-w-7xl mx-auto px-6">
                     <div className="flex justify-between items-center py-4">
                         <div className="flex items-center gap-4">
-                            <Button
-                                variant="outline"
-                                onClick={() => router.push('/dashboard')}
-                                className="p-2"
+                            {/* Side Navigation */}
+                            <button
+                                onClick={() => setSideNavOpen(true)}
+                                className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-all duration-200 flex items-center gap-2"
+                                title="ניהול עסק"
                             >
-                                <ArrowLeft className="w-4 h-4" />
-                            </Button>
+                                <Menu className="w-5 h-5" />
+                                <span className="text-sm font-medium hidden md:block">ניהול עסק</span>
+                            </button>
                             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30">
                                 <Calendar className="w-5 h-5 text-white" />
                             </div>
@@ -403,19 +517,10 @@ export default function BusinessDashboard() {
                                 <h1 className="text-2xl font-black bg-gradient-to-l from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent">
                                     {business.name}
                                 </h1>
-                                <p className="text-sm text-gray-500 font-medium">ניהול עסק</p>
                             </div>
                         </div>
-
                         <div className="flex items-center gap-4">
-                            <Button
-                                variant="outline"
-                                onClick={() => window.open(`/${business.slug}`, '_blank')}
-                                className="flex items-center gap-2"
-                            >
-                                <ExternalLink className="w-4 h-4" />
-                                צפה בעמוד הציבורי
-                            </Button>
+                            {/* פרופיל משתמש */}
                             <button
                                 onClick={() => router.push('/dashboard/profile')}
                                 className="flex items-center gap-2 hover:bg-gray-50 rounded-xl p-2 transition-colors"
@@ -431,13 +536,6 @@ export default function BusinessDashboard() {
                                         {user?.full_name.charAt(0)}
                                     </div>
                                 )}
-                            </button>
-                            <button
-                                onClick={handleLogout}
-                                className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200"
-                                title="התנתק"
-                            >
-                                <LogOut className="w-5 h-5" />
                             </button>
                         </div>
                     </div>
@@ -530,11 +628,9 @@ export default function BusinessDashboard() {
                     <div className="border-b border-gray-200/50">
                         <nav className="flex">
                             {[
-                                { key: 'overview', label: 'סקירה', icon: BarChart },
-                                { key: 'appointments', label: 'תורים', icon: Calendar },
-                                { key: 'services', label: 'שירותים', icon: Sparkles },
-                                { key: 'profile', label: 'פרטי עסק', icon: Settings },
-                                { key: 'availability', label: 'זמינות', icon: Clock },
+                                { key: 'pending', label: 'ממתין לאישור', icon: Clock },
+                                { key: 'calendar', label: 'יומן', icon: Calendar },
+                                { key: 'appointments', label: 'תורים', icon: Users },
                                 { key: 'premium', label: 'פרימיום', icon: Crown }
                             ].map((tab) => (
                                 <button
@@ -553,342 +649,350 @@ export default function BusinessDashboard() {
                     </div>
 
                     <div className="p-6">
-                        {activeTab === 'overview' && (
+                        {activeTab === 'pending' && (
                             <div>
-                                <h3 className="text-xl font-bold text-gray-900 mb-6">סקירת התורים של {business.name}</h3>
+                                <h3 className="text-xl font-bold text-gray-900 mb-6">תורים ממתינים לאישור</h3>
 
-                                {appointments.length === 0 ? (
-                                    <div className="text-center py-12">
-                                        <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                                        <h4 className="text-lg font-semibold text-gray-900 mb-2">אין תורים עדיין</h4>
-                                        <p className="text-gray-600 mb-6">שתף את הקישור הציבורי שלך כדי להתחיל לקבל בקשות תור</p>
-                                        <button
-                                            onClick={copyPublicLink}
-                                            className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-semibold hover:bg-blue-700 transition-colors"
-                                        >
-                                            העתק קישור ציבורי
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-4">
-                                        {appointments.slice(0, 5).map((appointment) => (
-                                            <div key={appointment.id} className="flex items-center justify-between p-4 bg-gray-50/50 rounded-2xl">
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                                                        <Users className="w-5 h-5 text-blue-600" />
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-semibold text-gray-900">{appointment.client_name}</p>
-                                                        <p className="text-sm text-gray-600">{formatDate(appointment.date)} • {appointment.time}</p>
+                                {/* פילטר רק תורים pending */}
+                                {(() => {
+                                    const pendingAppointments = appointments.filter(apt => apt.status === 'pending');
+
+                                    return pendingAppointments.length === 0 ? (
+                                        <div className="text-center py-12">
+                                            <Clock className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                                            <h4 className="text-lg font-semibold text-gray-900 mb-2">אין בקשות תור ממתינות</h4>
+                                            <p className="text-gray-600 mb-6">כל הבקשות החדשות יופיעו כאן לאישור או דחייה</p>
+                                            <button
+                                                onClick={copyPublicLink}
+                                                className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-semibold hover:bg-blue-700 transition-colors"
+                                            >
+                                                העתק קישור ציבורי
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {pendingAppointments.map((appointment) => (
+                                                <div key={appointment.id} className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+                                                    <div className="flex items-start justify-between">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
+                                                                <Users className="w-6 h-6 text-yellow-600" />
+                                                            </div>
+                                                            <div>
+                                                                <h5 className="font-semibold text-gray-900 text-lg">{appointment.client_name}</h5>
+                                                                <p className="text-gray-600 mb-1">📞 {appointment.client_phone}</p>
+                                                                <p className="text-gray-600 mb-1">📅 {formatDate(appointment.date)} • ⏰ {appointment.time}</p>
+                                                                {(appointment as any).services?.name && (
+                                                                    <p className="text-blue-600 font-medium">🎯 {(appointment as any).services.name}</p>
+                                                                )}
+                                                                {appointment.note && (
+                                                                    <p className="text-gray-500 text-sm mt-2 bg-gray-50 p-2 rounded-lg">
+                                                                        💬 {appointment.note}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex gap-3">
+                                                            <button
+                                                                onClick={() => updateAppointmentStatus(appointment.id, 'confirmed')}
+                                                                className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"
+                                                            >
+                                                                <CheckCircle className="w-4 h-4" />
+                                                                אשר
+                                                            </button>
+                                                            <button
+                                                                onClick={() => updateAppointmentStatus(appointment.id, 'declined')}
+                                                                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"
+                                                            >
+                                                                <AlertCircle className="w-4 h-4" />
+                                                                דחה
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(appointment.status)}`}>
-                                                    {getStatusText(appointment.status)}
-                                                </span>
+                                            ))}
+
+                                            {/* סטטיסטיקה */}
+                                            <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 mt-6">
+                                                <div className="flex items-center gap-3">
+                                                    <Clock className="w-6 h-6 text-yellow-600" />
+                                                    <div>
+                                                        <p className="font-semibold text-yellow-800">
+                                                            {pendingAppointments.length} בקשות ממתינות לטיפול
+                                                        </p>
+                                                        <p className="text-yellow-700 text-sm">
+                                                            זכור לטפל בבקשות במהירות כדי לשמור על חוויה טובה ללקוחות
+                                                        </p>
+                                                    </div>
+                                                </div>
                                             </div>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        )}
+                        {activeTab === 'calendar' && (
+                            <div>
+                                <div className="flex items-center justify-between mb-6">
+                                    <h3 className="text-xl font-bold text-gray-900">יומן תורים</h3>
+
+                                    {/* בחירת תצוגה */}
+                                    <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
+                                        {[
+                                            { key: 'day', label: 'יום' },
+                                            { key: 'three-days', label: '3 ימים' },
+                                            { key: 'week', label: 'שבוע' },
+                                            { key: 'work-days', label: 'ימי עבודה' },
+                                            { key: 'month', label: 'חודש' }
+                                        ].map((view) => (
+                                            <button
+                                                key={view.key}
+                                                onClick={() => {/* TODO: set calendar view */ }}
+                                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view.key === 'week' // ברירת מחדל שבועית
+                                                    ? 'bg-white text-blue-600 shadow-sm'
+                                                    : 'text-gray-600 hover:text-gray-900'
+                                                    }`}
+                                            >
+                                                {view.label}
+                                            </button>
                                         ))}
                                     </div>
-                                )}
-                            </div>
-                        )}
-
-                        {activeTab === 'appointments' && (
-                            <div>
-                                <h3 className="text-xl font-bold text-gray-900 mb-6">ניהול תורים</h3>
-                                <p className="text-gray-600 mb-4">כאן תוכל לראות ולנהל את כל התורים של {business.name}</p>
-                                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                                    <p className="text-blue-800">🚧 בפיתוח - ממשק מלא לניהול תורים בקרוב</p>
                                 </div>
-                            </div>
-                        )}
-                        {activeTab === 'services' && (
-                            <div>
-                                <h3 className="text-xl font-bold text-gray-900 mb-6">ניהול שירותים</h3>
-                                <p className="text-gray-600 mb-6">הגדר את השירותים שאתה מציע ללקוחות</p>
 
-                                <div className="space-y-6">
-                                    {/* רשימת שירותים קיימים */}
-                                    <div className="bg-gray-50/50 rounded-2xl p-6">
-                                        <h4 className="font-semibold text-gray-900 mb-4">השירותים שלך:</h4>
-                                        {services.length === 0 ? (
-                                            <p className="text-gray-500 text-center py-8">לא הוגדרו שירותים עדיין</p>
-                                        ) : (
-                                            <div className="space-y-3">
-                                                {services.map((service) => (
-                                                    <div key={service.id} className="flex items-center justify-between bg-white p-4 rounded-xl border">
-                                                        <div className="flex-1">
-                                                            <div className="flex items-center gap-4">
-                                                                <div>
-                                                                    <h5 className="font-medium text-gray-900">{service.name}</h5>
-                                                                    {service.description && (
-                                                                        <p className="text-sm text-gray-600">{service.description}</p>
+                                {/* תצוגת יומן זמנית */}
+                                <div className="bg-white border border-gray-200 rounded-2xl p-6">
+                                    <div className="text-center py-12">
+                                        <Calendar className="w-16 h-16 text-blue-300 mx-auto mb-4" />
+                                        <h4 className="text-lg font-semibold text-gray-900 mb-2">תצוגת יומן מתקדמת</h4>
+                                        <p className="text-gray-600 mb-4">
+                                            כאן תוצג תצוגת יומן שבועית עם כל התורים שלך
+                                        </p>
+                                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 max-w-md mx-auto">
+                                            <h5 className="font-semibold text-blue-900 mb-2">תכונות מתוכננות:</h5>
+                                            <ul className="text-blue-800 text-sm space-y-1 text-right">
+                                                <li>• תצוגה שבועית אינטראקטיבית</li>
+                                                <li>• גרירה ושחרור של תורים</li>
+                                                <li>• תצוגת ימי עבודה בלבד</li>
+                                                <li>• סנכרון עם Google Calendar (פרימיום)</li>
+                                                <li>• הוספת תורים ידנית</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+
+                                    {/* תצוגה זמנית של התורים */}
+                                    {appointments.length > 0 && (
+                                        <div className="mt-8">
+                                            <h5 className="font-semibold text-gray-900 mb-4">התורים הקרובים:</h5>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                {appointments
+                                                    .filter(apt => apt.status === 'confirmed')
+                                                    .slice(0, 6)
+                                                    .map((appointment) => (
+                                                        <div key={appointment.id} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                                                                <div className="flex-1">
+                                                                    <p className="font-medium text-gray-900">{appointment.client_name}</p>
+                                                                    <p className="text-sm text-gray-600">
+                                                                        {formatDate(appointment.date)} • {appointment.time}
+                                                                    </p>
+                                                                    {(appointment as any).services.name && (
+                                                                        <p className="text-xs text-blue-600 mt-1">{(appointment as any).services.name}</p>
                                                                     )}
-                                                                    <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
-                                                                        <span>{service.duration_minutes} דקות</span>
-                                                                        {service.price && <span>₪{service.price}</span>}
-                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <div className="flex gap-2">
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={() => {/* TODO: עריכה */ }}
-                                                            >
-                                                                <Edit className="h-3 w-3" />
-                                                            </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={() => deleteService(service.id)}
-                                                                className="text-red-600 hover:text-red-700"
-                                                            >
-                                                                <Trash2 className="h-3 w-3" />
-                                                            </Button>
+                                                    ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {activeTab === 'appointments' && (
+                            <div>
+                                <div className="flex items-center justify-between mb-6">
+                                    <h3 className="text-xl font-bold text-gray-900">כל התורים</h3>
+
+                                    {/* פילטרים */}
+                                    <div className="flex items-center gap-4">
+                                        <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
+                                            {[
+                                                { key: 'confirmed', label: 'מאושרים', count: appointments.filter(apt => apt.status === 'confirmed').length },
+                                                { key: 'declined', label: 'נדחו', count: appointments.filter(apt => apt.status === 'declined').length },
+                                                { key: 'cancelled', label: 'בוטלו', count: appointments.filter(apt => apt.status === 'cancelled').length },
+                                                { key: 'all', label: 'הכל', count: appointments.length }
+                                            ].map((filter) => (
+                                                <button
+                                                    key={filter.key}
+                                                    onClick={() => {/* TODO: set filter */ }}
+                                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${filter.key === 'confirmed' // ברירת מחדל מאושרים
+                                                        ? 'bg-white text-blue-600 shadow-sm'
+                                                        : 'text-gray-600 hover:text-gray-900'
+                                                        }`}
+                                                >
+                                                    {filter.label}
+                                                    <span className="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-full text-xs">
+                                                        {filter.count}
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {(() => {
+                                    // ברירת מחדל: רק תורים מאושרים, ממוינים לפי תאריך
+                                    const filteredAppointments = appointments
+                                        .filter(apt => apt.status === 'confirmed') // TODO: החלף בהתאם לפילטר שנבחר
+                                        .sort((a, b) => {
+                                            const dateA = new Date(`${a.date} ${a.time}`);
+                                            const dateB = new Date(`${b.date} ${b.time}`);
+                                            return dateA.getTime() - dateB.getTime(); // מיון עולה - הקרוב ביותר קודם
+                                        });
+
+                                    return filteredAppointments.length === 0 ? (
+                                        <div className="text-center py-12">
+                                            <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                                            <h4 className="text-lg font-semibold text-gray-900 mb-2">אין תורים מאושרים</h4>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {filteredAppointments.map((appointment, index) => {
+                                                const appointmentDate = new Date(`${appointment.date} ${appointment.time}`);
+                                                const now = new Date();
+                                                const isPast = appointmentDate < now;
+                                                const isToday = appointment.date === now.toISOString().split('T')[0];
+                                                const isUpcoming = appointmentDate > now && !isToday;
+
+                                                return (
+                                                    <div
+                                                        key={appointment.id}
+                                                        className={`bg-white border rounded-2xl p-6 shadow-sm transition-all hover:shadow-md ${isPast ? 'opacity-75 border-gray-200' :
+                                                            isToday ? 'border-orange-300 bg-orange-50' :
+                                                                'border-gray-200'
+                                                            }`}
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-4">
+                                                                {/* אינדיקטור סטטוס */}
+                                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${appointment.status === 'confirmed' ? 'bg-green-100' :
+                                                                    appointment.status === 'declined' ? 'bg-red-100' :
+                                                                        appointment.status === 'cancelled' ? 'bg-gray-100' :
+                                                                            'bg-yellow-100'
+                                                                    }`}>
+                                                                    {appointment.status === 'confirmed' ? (
+                                                                        <CheckCircle className="w-6 h-6 text-green-600" />
+                                                                    ) : appointment.status === 'declined' ? (
+                                                                        <AlertCircle className="w-6 h-6 text-red-600" />
+                                                                    ) : (
+                                                                        <Clock className="w-6 h-6 text-gray-600" />
+                                                                    )}
+                                                                </div>
+
+                                                                <div>
+                                                                    <div className="flex items-center gap-3 mb-1">
+                                                                        <h5 className="font-semibold text-gray-900 text-lg">{appointment.client_name}</h5>
+                                                                        {isToday && (
+                                                                            <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs font-medium">
+                                                                                היום
+                                                                            </span>
+                                                                        )}
+                                                                        {isPast && (
+                                                                            <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs font-medium">
+                                                                                עבר
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+
+                                                                    <div className="flex items-center gap-4 text-gray-600 text-sm">
+                                                                        <span>📞 {appointment.client_phone}</span>
+                                                                        <span>📅 {formatDate(appointment.date)}</span>
+                                                                        <span>⏰ {appointment.time}</span>
+                                                                    </div>
+
+                                                                    {(appointment as any).services.name && (
+                                                                        <p className="text-blue-600 font-medium text-sm mt-1">
+                                                                            🎯 {(appointment as any).services.name}
+                                                                        </p>
+                                                                    )}
+
+                                                                    {appointment.note && (
+                                                                        <p className="text-gray-500 text-sm mt-2 bg-gray-50 p-2 rounded-lg max-w-md">
+                                                                            💬 {appointment.note}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-3">
+                                                                {/* סטטוס */}
+                                                                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(appointment.status)}`}>
+                                                                    {getStatusText(appointment.status)}
+                                                                </span>
+
+                                                                {/* פעולות */}
+                                                                <div className="flex gap-2">
+                                                                    {appointment.status === 'confirmed' && !isPast && (
+                                                                        <button
+                                                                            onClick={() => updateAppointmentStatus(appointment.id, 'cancelled')}
+                                                                            className="text-gray-500 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                                                                            title="בטל תור"
+                                                                        >
+                                                                            <AlertCircle className="w-4 h-4" />
+                                                                        </button>
+                                                                    )}
+
+                                                                    <button
+                                                                        onClick={() => {/* TODO: עריכת תור */ }}
+                                                                        className="text-gray-500 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors"
+                                                                        title="ערוך תור"
+                                                                    >
+                                                                        <Edit className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* הוספת שירות חדש */}
-                                    <div className="bg-white border border-gray-200 rounded-2xl p-6">
-                                        <h4 className="font-semibold text-gray-900 mb-4">הוסף שירות חדש:</h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div>
-                                                <Label className="block text-sm font-medium text-gray-700 mb-2">שם השירות *</Label>
-                                                <Input
-                                                    value={newService.name}
-                                                    onChange={(e) => setNewService({
-                                                        ...newService,
-                                                        name: e.target.value
-                                                    })}
-                                                    placeholder="למשל: עיצוב גבות"
-                                                />
-                                            </div>
-                                            <div>
-                                                <Label className="block text-sm font-medium text-gray-700 mb-2">מחיר (₪)</Label>
-                                                <Input
-                                                    type="number"
-                                                    value={newService.price}
-                                                    onChange={(e) => setNewService({
-                                                        ...newService,
-                                                        price: e.target.value
-                                                    })}
-                                                    placeholder="120"
-                                                />
-                                            </div>
-                                            <div>
-                                                <Label className="block text-sm font-medium text-gray-700 mb-2">משך זמן (דקות) *</Label>
-                                                <Input
-                                                    type="number"
-                                                    value={newService.duration_minutes}
-                                                    onChange={(e) => setNewService({
-                                                        ...newService,
-                                                        duration_minutes: parseInt(e.target.value) || 60
-                                                    })}
-                                                    placeholder="60"
-                                                />
-                                            </div>
-                                            <div className="flex items-end">
-                                                <Button
-                                                    onClick={addService}
-                                                    className="w-full bg-blue-600 hover:bg-blue-700"
-                                                >
-                                                    הוסף שירות
-                                                </Button>
-                                            </div>
-                                        </div>
-                                        <div className="mt-4">
-                                            <Label className="block text-sm font-medium text-gray-700 mb-2">תיאור השירות</Label>
-                                            <Textarea
-                                                value={newService.description}
-                                                onChange={(e) => setNewService({
-                                                    ...newService,
-                                                    description: e.target.value
-                                                })}
-                                                placeholder="תיאור קצר של השירות..."
-                                                rows={2}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        {activeTab === 'profile' && (
-                            <div>
-                                <h3 className="text-xl font-bold text-gray-900 mb-6">פרטי העסק</h3>
-                                <div className="space-y-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
-                                            <Label className="block text-sm font-semibold text-gray-700 mb-2">שם העסק</Label>
-                                            <Input
-                                                type="text"
-                                                value={editedBusiness.name}
-                                                onChange={(e) => setEditedBusiness({
-                                                    ...editedBusiness,
-                                                    name: e.target.value
-                                                })}
-                                                placeholder="שם העסק שלך"
-                                            />
-                                        </div>
-                                        <div>
-                                            <Label className="block text-sm font-semibold text-gray-700 mb-2">
-                                                קישור אישי (slug)
-                                            </Label>
-                                            <div className="flex items-center gap-3">
-                                                <span className="text-gray-500 text-sm">mytor.app/</span>
-                                                <Input
-                                                    type="text"
-                                                    value={editedBusiness.slug}
-                                                    onChange={(e) => setEditedBusiness({
-                                                        ...editedBusiness,
-                                                        slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
-                                                    })}
-                                                    className="flex-1"
-                                                    placeholder="הקישור-שלך"
-                                                />
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={generateSlug}
-                                                    className="shrink-0"
-                                                >
-                                                    🎲 הגרל
-                                                </Button>
-                                            </div>
-                                            <p className="text-xs text-gray-500 mt-1">
-                                                זה יהיה הקישור שהלקוחות שלך ישתמשו בו להזמנת תורים
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <Label className="block text-sm font-semibold text-gray-700 mb-2">תיאור העסק</Label>
-                                        <Textarea
-                                            value={editedBusiness.description}
-                                            onChange={(e) => setEditedBusiness({
-                                                ...editedBusiness,
-                                                description: e.target.value
+                                                );
                                             })}
-                                            className="h-32"
-                                            placeholder="ספר על העסק שלך, השירותים שאתה מציע ומה מיוחד בך..."
-                                        />
-                                    </div>
 
-                                    <div>
-                                        <Label className="block text-sm font-semibold text-gray-700 mb-2">תנאי שירות</Label>
-                                        <Textarea
-                                            value={editedBusiness.terms}
-                                            onChange={(e) => setEditedBusiness({
-                                                ...editedBusiness,
-                                                terms: e.target.value
-                                            })}
-                                            className="h-32"
-                                            placeholder="תנאי ביטול, מדיניות תשלום וכו..."
-                                        />
-                                    </div>
-
-                                    <Button
-                                        onClick={saveBusiness}
-                                        disabled={saving}
-                                        className="bg-blue-600 hover:bg-blue-700"
-                                    >
-                                        {saving && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
-                                        {saving ? 'שומר...' : 'שמור שינויים'}
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-
-                        {activeTab === 'availability' && (
-                            <div>
-                                <h3 className="text-xl font-bold text-gray-900 mb-6">ניהול זמינות</h3>
-                                <p className="text-gray-600 mb-6">הגדר את הימים והשעות שבהם {business.name} זמין לקבל לקוחות</p>
-
-                                <div className="space-y-6">
-                                    <div className="bg-gray-50/50 rounded-2xl p-6">
-                                        <h4 className="font-semibold text-gray-900 mb-4">זמינות שבועית נוכחית:</h4>
-                                        {availability.length === 0 ? (
-                                            <p className="text-gray-500 text-center py-8">לא הוגדרה זמינות עדיין</p>
-                                        ) : (
-                                            <div className="space-y-3">
-                                                {availability.map((avail) => (
-                                                    <div key={avail.id} className="flex items-center justify-between bg-white p-4 rounded-xl">
-                                                        <span className="font-medium">
-                                                            יום {getDayName(avail.day_of_week)}: {avail.start_time} - {avail.end_time}
-                                                        </span>
-                                                        <button
-                                                            onClick={() => deleteAvailability(avail.id)}
-                                                            className="text-red-600 hover:text-red-800 p-2"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </button>
+                                            {/* סטטיסטיקה */}
+                                            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mt-6">
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                                                    <div>
+                                                        <p className="text-2xl font-bold text-blue-600">
+                                                            {appointments.filter(apt => apt.status === 'confirmed').length}
+                                                        </p>
+                                                        <p className="text-blue-800 text-sm">תורים מאושרים</p>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="bg-white border border-gray-200 rounded-2xl p-6">
-                                        <h4 className="font-semibold text-gray-900 mb-4">הוסף זמינות חדשה:</h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                            <div>
-                                                <Label className="block text-sm font-medium text-gray-700 mb-2">יום</Label>
-                                                <select
-                                                    value={newAvailability.day_of_week}
-                                                    onChange={(e) => setNewAvailability({
-                                                        ...newAvailability,
-                                                        day_of_week: parseInt(e.target.value)
-                                                    })}
-                                                    className="w-full px-3 py-2 border border-gray-200 rounded-xl"
-                                                >
-                                                    <option value={0}>ראשון</option>
-                                                    <option value={1}>שני</option>
-                                                    <option value={2}>שלישי</option>
-                                                    <option value={3}>רביעי</option>
-                                                    <option value={4}>חמישי</option>
-                                                    <option value={5}>שישי</option>
-                                                    <option value={6}>שבת</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <Label className="block text-sm font-medium text-gray-700 mb-2">שעת התחלה</Label>
-                                                <Input
-                                                    type="time"
-                                                    value={newAvailability.start_time}
-                                                    onChange={(e) => setNewAvailability({
-                                                        ...newAvailability,
-                                                        start_time: e.target.value
-                                                    })}
-                                                />
-                                            </div>
-                                            <div>
-                                                <Label className="block text-sm font-medium text-gray-700 mb-2">שעת סיום</Label>
-                                                <Input
-                                                    type="time"
-                                                    value={newAvailability.end_time}
-                                                    onChange={(e) => setNewAvailability({
-                                                        ...newAvailability,
-                                                        end_time: e.target.value
-                                                    })}
-                                                />
-                                            </div>
-                                            <div className="flex items-end">
-                                                <Button
-                                                    onClick={addAvailability}
-                                                    className="w-full bg-blue-600 hover:bg-blue-700"
-                                                >
-                                                    הוסף
-                                                </Button>
+                                                    <div>
+                                                        <p className="text-2xl font-bold text-orange-600">
+                                                            {appointments.filter(apt => {
+                                                                const today = new Date().toISOString().split('T')[0];
+                                                                return apt.date === today && apt.status === 'confirmed';
+                                                            }).length}
+                                                        </p>
+                                                        <p className="text-orange-800 text-sm">תורים היום</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-2xl font-bold text-green-600">
+                                                            {appointments.filter(apt => {
+                                                                const aptDate = new Date(`${apt.date} ${apt.time}`);
+                                                                const now = new Date();
+                                                                return aptDate > now && apt.status === 'confirmed';
+                                                            }).length}
+                                                        </p>
+                                                        <p className="text-green-800 text-sm">תורים קרובים</p>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                </div>
+                                    );
+                                })()}
                             </div>
                         )}
-
                         {activeTab === 'premium' && (
                             <div>
                                 <div className="text-center mb-8">
@@ -992,6 +1096,481 @@ export default function BusinessDashboard() {
                     </div>
                 </div>
             </div>
+            {/* Side Navigation Overlay */}
+            {sideNavOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm"
+                    onClick={handleOverlayClick}
+                />
+            )}
+
+            {/* Side Navigation */}
+            <div className={`fixed top-0 right-0 h-full w-80 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50
+            ${sideNavOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+                {/* Header של Side Nav */}
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-lg font-bold">ניהול עסק</h3>
+                            <p className="text-blue-100 text-sm">{business.name}</p>
+                        </div>
+                        <button
+                            onClick={closeSideNav}
+                            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+                </div>
+
+                {/* תפריט הניווט */}
+                <div className="p-4">
+                    <nav className="space-y-2">
+                        {[
+                            { key: 'profile', label: 'פרטי עסק', icon: Settings, desc: 'עדכן מידע וקישורים' },
+                            { key: 'services', label: 'שירותים', icon: Sparkles, desc: 'הוסף ועדכן שירותים' },
+                            { key: 'availability', label: 'זמינות', icon: Clock, desc: 'הגדר שעות פעילות' }
+                        ].map((item) => (
+                            <button
+                                key={item.key}
+                                onClick={() => {
+                                    // סגירת Side Nav ופתיחת המודאל המתאים
+                                    // סגירת Side Nav TODO
+                                    openModal(item.key as 'services' | 'profile' | 'availability');
+                                }}
+                                className={`w-full text-right p-4 rounded-xl transition-all duration-200 group
+                                ${modalContent === item.key && modalOpen
+                                        ? 'bg-blue-50 border-2 border-blue-200 text-blue-900'
+                                        : 'hover:bg-gray-50 border-2 border-transparent text-gray-700 hover:text-gray-900'
+                                    }
+                            `}>
+                                <div className="flex items-center gap-3">
+                                    <div className={`
+                            w-10 h-10 rounded-xl flex items-center justify-center transition-colors
+                            ${modalContent === item.key && modalOpen
+                                            ? 'bg-blue-200 text-blue-700'
+                                            : 'bg-gray-100 text-gray-600 group-hover:bg-gray-200'
+                                        }
+                                   `}>
+                                        <item.icon className="w-5 h-5" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h4 className="font-semibold">{item.label}</h4>
+                                        <p className="text-sm opacity-70">{item.desc}</p>
+                                    </div>
+                                </div>
+                            </button>
+                        ))}
+                    </nav>
+
+                    {/* מידע נוסף */}
+                    <div className="mt-8 p-4 bg-gray-50 rounded-xl">
+                        <div className="flex items-center gap-3 mb-3">
+                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                <Calendar className="w-4 h-4 text-blue-600" />
+                            </div>
+                            <div>
+                                <p className="font-semibold text-gray-900">מצב העסק</p>
+                                <p className="text-sm text-gray-600">פעיל ומקבל תורים</p>
+                            </div>
+                        </div>
+                        <div className="space-y-2 text-sm text-gray-600">
+                            <div className="flex justify-between">
+                                <span>שירותים פעילים:</span>
+                                <span className="font-medium">{services.length}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span>ימי עבודה:</span>
+                                <span className="font-medium">{availability.length}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* קישור מהיר לעמוד הציבורי */}
+                    <div className="mt-4">
+                        <button
+                            onClick={() => {
+                                window.open(`/${business.slug}`, '_blank');
+                                closeSideNav();
+                            }}
+                            className="w-full p-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold hover:from-green-600 hover:to-green-700 transition-all duration-200 flex items-center justify-center gap-2"
+                        >
+                            <ExternalLink className="w-4 h-4" />
+                            צפה בעמוד הציבורי
+                        </button>
+                    </div>
+                    {/* פריצת קו */}
+                    <div className="border-t border-gray-200 my-6"></div>
+
+                    {/* פרופיל משתמש */}
+                    <div className="space-y-3">
+                        <button
+                            onClick={() => {
+                                router.push('/dashboard/profile');
+                                closeSideNav();
+                            }}
+                            className="w-full text-right p-3 rounded-xl hover:bg-gray-50 transition-colors flex items-center gap-3"
+                        >
+                            <div className="flex items-center gap-3">
+                                {user?.profile_pic ? (
+                                    <img
+                                        src={user.profile_pic}
+                                        alt={user?.full_name}
+                                        className="w-10 h-10 rounded-full object-cover border-2 border-blue-200"
+                                    />
+                                ) : (
+                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white text-sm font-bold">
+                                        {user?.full_name?.charAt(0)}
+                                    </div>
+                                )}
+                                <div className="flex-1">
+                                    <h4 className="font-semibold text-gray-900">{user?.full_name}</h4>
+                                    <p className="text-sm text-gray-600">פרופיל אישי</p>
+                                </div>
+                            </div>
+                            <ChevronLeft className="w-4 h-4 text-gray-400" />
+                        </button>
+
+                        {/* דשבורד ראשי */}
+                        <button
+                            onClick={() => {
+                                router.push('/dashboard');
+                                closeSideNav();
+                            }}
+                            className="w-full text-right p-3 rounded-xl hover:bg-gray-50 transition-colors flex items-center gap-3"
+                        >
+                            <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+                                <BarChart className="w-5 h-5 text-gray-600" />
+                            </div>
+                            <div className="flex-1">
+                                <h4 className="font-semibold text-gray-900">דשבורד ראשי</h4>
+                                <p className="text-sm text-gray-600">כל העסקים שלי</p>
+                            </div>
+                            <ChevronLeft className="w-4 h-4 text-gray-400" />
+                        </button>
+
+                        {/* התנתקות */}
+                        <button
+                            onClick={handleLogout}
+                            className="w-full text-right p-3 rounded-xl hover:bg-red-50 transition-colors flex items-center gap-3 text-red-600 hover:text-red-700"
+                        >
+                            <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                                <LogOut className="w-5 h-5 text-red-600" />
+                            </div>
+                            <div className="flex-1">
+                                <h4 className="font-semibold">התנתק</h4>
+                                <p className="text-sm text-red-500">יציאה מהמערכת</p>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {/* Modal section */}
+            {modalOpen && (
+                <>
+                    {/* Modal Overlay - מטשטש הכל כולל הניווט */}
+                    <div
+                        className="fixed inset-0 bg-black/60 z-[60] backdrop-blur-sm"
+                        onClick={closeModal}
+                    />
+
+                    {/* Modal Content */}
+                    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+                        <div
+                            className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden"
+                            onClick={(e) => e.stopPropagation()} // מונע סגירה בלחיצה על המודל עצמו
+                        >
+                            {/* Modal Header */}
+                            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-6 text-white flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-bold">
+                                        {modalContent === 'services' && 'שירותים'}
+                                        {modalContent === 'profile' && 'פרטי העסק'}
+                                        {modalContent === 'availability' && 'זמינות'}
+                                    </h2>
+                                    <p className="text-blue-100 mt-1">
+                                        {modalContent === 'services' && 'הוסף, ערוך ונהל את השירותים שלך'}
+                                        {modalContent === 'profile' && 'עדכן את פרטי העסק והקישור הציבורי'}
+                                        {modalContent === 'availability' && 'הגדר את שעות הפעילות שלך'}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={closeModal}
+                                    className="p-3 hover:bg-white/20 rounded-xl transition-colors"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+
+                            {/* Modal Content */}
+                            <div className="p-8 overflow-y-auto max-h-[calc(90vh-120px)]">
+                                {modalContent === 'services' && (
+                                    <div>
+                                        {/* העתק את כל התוכן של activeTab === 'services' לכאן */}
+                                        <div className="space-y-6">
+                                            {/* רשימת שירותים קיימים */}
+                                            <div className="bg-gray-50/50 rounded-2xl p-6">
+                                                <h4 className="font-semibold text-gray-900 mb-4">השירותים שלך:</h4>
+                                                {services.length === 0 ? (
+                                                    <p className="text-gray-500 text-center py-8">לא הוגדרו שירותים עדיין</p>
+                                                ) : (
+                                                    <div className="space-y-3">
+                                                        {services.map((service) => (
+                                                            <div key={service.id} className="flex items-center justify-between bg-white p-4 rounded-xl border">
+                                                                <div className="flex-1">
+                                                                    <div className="flex items-center gap-4">
+                                                                        <div>
+                                                                            <h5 className="font-medium text-gray-900">{service.name}</h5>
+                                                                            {service.description && (
+                                                                                <p className="text-sm text-gray-600">{service.description}</p>
+                                                                            )}
+                                                                            <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
+                                                                                <span>{formatDuration(service.duration_minutes)}</span>
+                                                                                {service.price && <span>₪{service.price}</span>}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex gap-2">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        onClick={() => {/* TODO: עריכה */ }}
+                                                                    >
+                                                                        <Edit className="h-3 w-3" />
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        onClick={() => deleteService(service.id.toString())}
+                                                                        className="text-red-600 hover:text-red-700"
+                                                                    >
+                                                                        <Trash2 className="h-3 w-3" />
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* הוספת שירות חדש */}
+                                            <div className="bg-white border border-gray-200 rounded-2xl p-6">
+                                                <h4 className="font-semibold text-gray-900 mb-4">הוסף שירות חדש:</h4>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div>
+                                                        <Label className="block text-sm font-medium text-gray-700 mb-2">שם השירות *</Label>
+                                                        <Input
+                                                            value={newService.name}
+                                                            onChange={(e) => setNewService({
+                                                                ...newService,
+                                                                name: e.target.value
+                                                            })}
+                                                            placeholder="למשל: עיצוב גבות"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <Label className="block text-sm font-medium text-gray-700 mb-2">מחיר (₪)</Label>
+                                                        <Input
+                                                            type="number"
+                                                            value={newService.price}
+                                                            onChange={(e) => setNewService({
+                                                                ...newService,
+                                                                price: e.target.value
+                                                            })}
+                                                            placeholder="120"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <Label className="block text-sm font-medium text-gray-700 mb-2">משך השירות *</Label>
+                                                        <DurationSelector
+                                                            value={newService.duration_minutes}
+                                                            onChange={(value) => setNewService({
+                                                                ...newService,
+                                                                duration_minutes: value
+                                                            })}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-end">
+                                                        <Button
+                                                            onClick={addService}
+                                                            className="w-full bg-blue-600 hover:bg-blue-700"
+                                                        >
+                                                            הוסף שירות
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-4">
+                                                    <Label className="block text-sm font-medium text-gray-700 mb-2">תיאור השירות</Label>
+                                                    <Textarea
+                                                        value={newService.description}
+                                                        onChange={(e) => setNewService({
+                                                            ...newService,
+                                                            description: e.target.value
+                                                        })}
+                                                        placeholder="תיאור קצר של השירות..."
+                                                        rows={2}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {modalContent === 'profile' && (
+                                    <div>
+                                        {/* העתק את כל התוכן של activeTab === 'profile' לכאן */}
+                                        <div className="space-y-6">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <div>
+                                                    <Label className="block text-sm font-semibold text-gray-700 mb-2">שם העסק</Label>
+                                                    <Input
+                                                        type="text"
+                                                        value={editedBusiness.name}
+                                                        onChange={(e) => setEditedBusiness({
+                                                            ...editedBusiness,
+                                                            name: e.target.value
+                                                        })}
+                                                        placeholder="שם העסק שלך"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <Label className="block text-sm font-semibold text-gray-700 mb-2">
+                                                        קישור אישי (slug)
+                                                    </Label>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-gray-500 text-sm">mytor.app/</span>
+                                                        <Input
+                                                            type="text"
+                                                            value={editedBusiness.slug}
+                                                            onChange={(e) => setEditedBusiness({
+                                                                ...editedBusiness,
+                                                                slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+                                                            })}
+                                                            className="flex-1"
+                                                            placeholder="הקישור-שלך"
+                                                        />
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={generateSlug}
+                                                            className="shrink-0"
+                                                        >
+                                                            🎲 הגרל
+                                                        </Button>
+                                                    </div>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        זה יהיה הקישור שהלקוחות שלך ישתמשו בו להזמנת תורים
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <Label className="block text-sm font-semibold text-gray-700 mb-2">תיאור העסק</Label>
+                                                <Textarea
+                                                    value={editedBusiness.description}
+                                                    onChange={(e) => setEditedBusiness({
+                                                        ...editedBusiness,
+                                                        description: e.target.value
+                                                    })}
+                                                    className="h-32"
+                                                    placeholder="ספר על העסק שלך, השירותים שאתה מציע ומה מיוחד בך..."
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <Label className="block text-sm font-semibold text-gray-700 mb-2">תנאי שירות</Label>
+                                                <Textarea
+                                                    value={editedBusiness.terms}
+                                                    onChange={(e) => setEditedBusiness({
+                                                        ...editedBusiness,
+                                                        terms: e.target.value
+                                                    })}
+                                                    className="h-32"
+                                                    placeholder="תנאי ביטול, מדיניות תשלום וכו..."
+                                                />
+                                            </div>
+
+                                            <Button
+                                                onClick={saveBusiness}
+                                                disabled={saving}
+                                                className="bg-blue-600 hover:bg-blue-700"
+                                            >
+                                                {saving && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
+                                                {saving ? 'שומר...' : 'שמור שינויים'}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {modalContent === 'availability' && (
+                                    <div>
+                                        {/* העתק את כל התוכן של activeTab === 'availability' לכאן */}
+                                        <AvailabilityTable
+                                            businessId={businessId}
+                                            initialAvailability={availability}
+                                            onSaveSuccess={fetchAvailability}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }
+
+// רכיב לבחירת משך שירות
+const DurationSelector = ({ value, onChange }: { value: number; onChange: (value: number) => void }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    const generateDurationOptions = () => {
+        const options = [];
+        for (let minutes = 15; minutes <= 480; minutes += 15) {
+            let label;
+            if (minutes < 60) {
+                label = `${minutes} דקות`;
+            } else if (minutes % 60 === 0) {
+                const hours = minutes / 60;
+                label = hours === 1 ? 'שעה' : `${hours} שעות`;
+            } else {
+                const hours = Math.floor(minutes / 60);
+                const remainingMinutes = minutes % 60;
+                label = hours === 1 ? `שעה ו${remainingMinutes} דקות` : `${hours} שעות ו${remainingMinutes} דקות`;
+            }
+            options.push({ value: minutes, label });
+        }
+        return options;
+    };
+
+    const options = generateDurationOptions();
+    const selected = options.find(opt => opt.value === value);
+
+    return (
+        <div className="relative">
+            <button
+                type="button"
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full px-3 py-2 text-right bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-between"
+            >
+                <span>{selected?.label || 'בחר משך זמן'}</span>
+                <ChevronDown className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {options.map((option) => (
+                        <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => { onChange(option.value); setIsOpen(false); }}
+                            className={`w-full px-3 py-2 text-right hover:bg-blue-50 ${value === option.value ? 'bg-blue-100 font-medium' : ''}`}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};

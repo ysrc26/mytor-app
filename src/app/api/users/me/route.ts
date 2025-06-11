@@ -1,14 +1,15 @@
 // src/app/api/users/me/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
-    
+    const supabase = await createClient();
+
     const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    console.log('Auth debug:', { user: authUser?.id, error: authError });
     if (authError || !authUser) {
+      console.log('Authentication failed:', authError);
       return NextResponse.json(
         { error: 'לא מורשה' },
         { status: 401 }
@@ -42,8 +43,8 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
-    
+    const supabase = await createClient();
+
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'לא מורשה' }, { status: 401 });
@@ -53,10 +54,10 @@ export async function PUT(request: NextRequest) {
 
     const { data: updatedUser, error: updateError } = await supabase
       .from('users')
-      .update({ 
-        full_name, 
-        phone, 
-        profile_pic 
+      .update({
+        full_name,
+        phone,
+        profile_pic
       })
       .eq('id', user.id)
       .select()

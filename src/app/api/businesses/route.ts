@@ -1,38 +1,63 @@
 // src/app/api/businesses/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
 import { createSlugFromName } from '@/lib/slugUtils';
+import { createClient } from '@/lib/supabase-server';
 
 export async function GET(request: NextRequest) {
-  try {
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
-    
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'לא מורשה' }, { status: 401 });
+    try {
+      const supabase = await createClient();
+      
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        return NextResponse.json({ error: 'לא מורשה' }, { status: 401 });
+      }
+  
+      // בדוק אם זה בקשה לעסק בודד או לכל העסקים
+      const url = new URL(request.url);
+      const getSingle = url.searchParams.get('single') === 'true';
+  
+      if (getSingle) {
+        // החזר עסק אחד (הראשון)
+        const { data: business, error } = await supabase
+          .from('businesses')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+  
+        if (error) {
+          return NextResponse.json({ error: 'שגיאה בשליפת עסק' }, { status: 500 });
+        }
+  
+        if (!business) {
+          return NextResponse.json({ error: 'לא נמצא עסק' }, { status: 404 });
+        }
+  
+        return NextResponse.json(business);
+      } else {
+        // החזר כל העסקים (הפונקציונליות הקיימת)
+        const { data: businesses, error } = await supabase
+          .from('businesses')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+  
+        if (error) {
+          return NextResponse.json({ error: 'שגיאה בשליפת עסקים' }, { status: 500 });
+        }
+  
+        return NextResponse.json(businesses || []);
+      }
+  
+    } catch (error) {
+      return NextResponse.json({ error: 'שגיאת שרת פנימית' }, { status: 500 });
     }
-
-    const { data: businesses, error } = await supabase
-      .from('businesses')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      return NextResponse.json({ error: 'שגיאה בשליפת עסקים' }, { status: 500 });
-    }
-
-    return NextResponse.json(businesses || []);
-
-  } catch (error) {
-    return NextResponse.json({ error: 'שגיאת שרת פנימית' }, { status: 500 });
   }
-}
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
+    const supabase = await createClient();
     
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {

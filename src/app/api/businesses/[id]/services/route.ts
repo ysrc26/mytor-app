@@ -1,14 +1,16 @@
 // src/app/api/businesses/[id]/services/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  // Wait for params to resolve
+  const resolvedParams = await params;
+
   try {
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
+    const supabase = await createClient();
     
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -19,7 +21,7 @@ export async function GET(
     const { data: business } = await supabase
       .from('businesses')
       .select('id')
-      .eq('id', params.id)
+      .eq('id', resolvedParams.id)
       .eq('user_id', user.id)
       .single();
 
@@ -30,7 +32,7 @@ export async function GET(
     const { data: services, error } = await supabase
       .from('services')
       .select('*')
-      .eq('business_id', params.id)
+      .eq('business_id', resolvedParams.id)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -46,10 +48,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
+    const supabase = await createClient();
+    const resolvedParams = await params;
     
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -65,7 +68,7 @@ export async function POST(
     const { data: service, error } = await supabase
       .from('services')
       .insert({
-        business_id: params.id,
+        business_id: resolvedParams.id,
         name,
         description,
         price,

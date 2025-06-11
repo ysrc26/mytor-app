@@ -1,15 +1,16 @@
 // src/app/api/businesses/[id]/appointments/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerComponentClient({ cookies:() => cookies() });
-    
+
+    const supabase = await createClient();
+    const resolvedParams = await params;
+
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'לא מורשה' }, { status: 401 });
@@ -19,7 +20,7 @@ export async function GET(
     const { data: business } = await supabase
       .from('businesses')
       .select('id')
-      .eq('id', params.id)
+      .eq('id', resolvedParams.id)
       .eq('user_id', user.id)
       .single();
 
@@ -29,8 +30,8 @@ export async function GET(
 
     const { data: appointments, error } = await supabase
       .from('appointments')
-      .select('*')
-      .eq('business_id', params.id)
+      .select(`*,services!inner(name)`)
+      .eq('business_id', resolvedParams.id)
       .order('created_at', { ascending: false });
 
     if (error) {

@@ -1,11 +1,10 @@
 // src/app/api/unavailable/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerComponentClient({ cookies });
+    const supabase = await createClient();
     
     // בדיקת authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -45,7 +44,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createServerComponentClient({ cookies });
+    const supabase = await createClient();
     
     // בדיקת authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser();

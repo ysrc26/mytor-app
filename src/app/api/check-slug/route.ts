@@ -1,7 +1,6 @@
 // src/app/api/check-slug/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,7 +10,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ available: false, error: 'חסר slug' });
     }
 
-    const supabase = createServerComponentClient({ cookies: () => cookies() });
+    const supabase = await createClient();
     
     let query = supabase
       .from('users')

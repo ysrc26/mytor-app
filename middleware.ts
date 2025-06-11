@@ -1,15 +1,31 @@
-// middleware.ts (in root directory)
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
+// middleware.ts
+import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
-  const supabase = createMiddlewareClient({ req, res });
+  let supabaseResponse = NextResponse.next({ request: req });
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            req.cookies.set(name, value);
+            supabaseResponse.cookies.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+
+  // IMPORTANT: רענון session - זה קריטי!
+  const { data: { session }, error } = await supabase.auth.getSession();
 
   // If user is on dashboard but not authenticated, redirect to login
   if (req.nextUrl.pathname.startsWith('/dashboard') && !session) {
@@ -17,23 +33,16 @@ export async function middleware(req: NextRequest) {
   }
 
   // If user is authenticated and tries to access auth pages, redirect to dashboard
-  if (session && (req.nextUrl.pathname.startsWith('/auth'))) {
-    return NextResponse.redirect(new URL('/dashboard', req.url));
+  if (session && req.nextUrl.pathname.startsWith('/auth') && !req.nextUrl.pathname.includes('/callback')) {
+    return NextResponse.redirect(new URL('/dashboard/redirect', req.url));
   }
 
-  return res;
+  // IMPORTANT: החזר את supabaseResponse שמכיל את הcookies המעודכנים
+  return supabaseResponse;
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     */
     '/((?!api|_next/static|_next/image|favicon.ico|public).*)',
   ],
 };

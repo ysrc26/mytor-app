@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@/lib/supabase-client';
 import Link from 'next/link';
 import { Calendar, Mail, Lock, Eye, EyeOff, AlertCircle, ArrowLeft, User, Phone, CheckCircle } from 'lucide-react';
 
@@ -23,7 +23,7 @@ export default function SignupPage() {
   const [success, setSuccess] = useState(false);
 
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClient();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
@@ -93,7 +93,7 @@ export default function SignupPage() {
         });
 
         if (response.ok) {
-          const supabase = createClientComponentClient();
+          const supabase = createClient();
           await supabase.auth.getSession();
           setSuccess(true);
           setTimeout(() => {

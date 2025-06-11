@@ -1,11 +1,11 @@
 // src/app/api/auth/signup/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase-server';
+import { createClient as createAdminClient } from '@supabase/supabase-js';
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = await createClient();
     const body = await request.json();
 
     const { email, password, full_name, phone } = body;
@@ -72,12 +72,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // יצירת רשומה בטבלת users
-    // נשתמש ב-service role client כדי לעקוף את ה-RLS
-    const { createClient } = require('@supabase/supabase-js');
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY // Service Role Key
+    // יצירת רשומה בטבלת users עם Service Role
+    const supabaseAdmin = createAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
     const { data: userData, error: userError } = await supabaseAdmin
@@ -96,7 +94,7 @@ export async function POST(request: NextRequest) {
       console.error('User creation error:', userError);
 
       // מחיקת המשתמש מ-Auth אם נכשלה יצירת הרשומה
-      await supabase.auth.admin.deleteUser(authData.user.id);
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
 
       return NextResponse.json(
         { error: 'שגיאה בשמירת פרטי המשתמש' },

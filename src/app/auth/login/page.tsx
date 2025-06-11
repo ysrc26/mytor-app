@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@/lib/supabase-client';
 import Link from 'next/link';
 import { Calendar, Mail, Lock, Eye, EyeOff, AlertCircle, ArrowLeft } from 'lucide-react';
 
@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClient();
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +32,7 @@ export default function LoginPage() {
       if (error) {
         setError('פרטי התחברות שגויים. אנא נסה שנית.');
       } else {
-        router.push('/dashboard');
+        router.push('/dashboard/redirect');
       }
     } catch (err) {
       setError('שגיאה בהתחברות. אנא נסה שנית.');

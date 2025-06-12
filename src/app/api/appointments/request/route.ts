@@ -25,8 +25,6 @@ export async function POST(request: NextRequest) {
       note
     } = body;
 
-    console.log('Received appointment request:', body);
-
     // ולידציה בסיסית
     if (!slug || !client_name || !client_phone || !date || !time || !service_id) {
       return NextResponse.json(
@@ -67,8 +65,6 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
-
-    console.log(`Phone ${client_phone} verified successfully`);
 
     // בדיקה שהתאריך לא בעבר
     const appointmentDate = new Date(date);
@@ -242,8 +238,6 @@ export async function POST(request: NextRequest) {
 
     // TODO: שליחת התראה לבעל העסק (אימייל/SMS)
     
-    console.log('Appointment created successfully:', newAppointment);
-
     return NextResponse.json({
       success: true,
       appointment: {

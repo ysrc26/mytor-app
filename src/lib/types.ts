@@ -96,7 +96,6 @@ export interface AppointmentRequestBody {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   note?: string;
-  client_verified?: boolean;
 }
 
 export interface AppointmentResponse {

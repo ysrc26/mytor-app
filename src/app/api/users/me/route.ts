@@ -7,9 +7,7 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
 
     const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
-    console.log('Auth debug:', { user: authUser?.id, error: authError });
     if (authError || !authUser) {
-      console.log('Authentication failed:', authError);
       return NextResponse.json(
         { error: 'לא מורשה' },
         { status: 401 }

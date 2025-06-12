@@ -251,8 +251,7 @@ const ServiceBookingCard: React.FC<ServiceBookingCardProps> = ({
           client_name: clientName,
           client_phone: clientPhone,
           date: timeUtils.formatDateForAPI(selectedDate),
-          time: selectedTime,
-          client_verified: true
+          time: selectedTime
         })
       });
 

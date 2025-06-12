@@ -32,8 +32,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`Verifying OTP for phone: ${phone}, code: ${code}`);
-
     // חיפוש קודים לא מאומתים תוך 5 דקות בלבד
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
@@ -53,8 +51,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`Found ${validUnverifiedCodes?.length || 0} valid unverified codes`);
-
     // חיפוש הקוד המבוקש
     const matchingCode = validUnverifiedCodes?.find(record => record.otp_code === code);
 
@@ -65,8 +61,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    console.log(`Found matching code: ${matchingCode.id}`);
 
     // סימון הקוד כמאומת
     const { error: updateError } = await supabase
@@ -82,8 +76,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('Code marked as verified, starting cleanup...');
-
     // ניקיון: מחיקת כל הקודים הלא מאומתים
     const { error: deleteUnverifiedError } = await supabase
       .from('otp_verifications')
@@ -93,8 +85,6 @@ export async function POST(request: NextRequest) {
 
     if (deleteUnverifiedError) {
       console.error('Error deleting unverified codes:', deleteUnverifiedError);
-    } else {
-      console.log('All unverified codes deleted');
     }
 
     // שמירת רק הקוד המאומת האחרון
@@ -118,12 +108,8 @@ export async function POST(request: NextRequest) {
 
       if (deleteOldVerifiedError) {
         console.error('Error deleting old verified codes:', deleteOldVerifiedError);
-      } else {
-        console.log(`Deleted ${idsToDelete.length} old verified codes`);
       }
     }
-
-    console.log('OTP verification and cleanup completed successfully');
 
     return NextResponse.json({
       verified: true,

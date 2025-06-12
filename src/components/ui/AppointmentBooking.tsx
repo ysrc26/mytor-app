@@ -155,8 +155,7 @@ const AppointmentBooking: React.FC<BookingComponentProps> = ({
           client_phone: clientDetails.phone,
           date: selectedDate.toISOString().split('T')[0],
           time: selectedTime,
-          note: clientDetails.note,
-          client_verified: true // מניח שעבר אימות OTP
+          note: clientDetails.note
         })
       });
 

@@ -16,7 +16,7 @@ export async function GET(
       return NextResponse.json({ error: 'לא מורשה' }, { status: 401 });
     }
 
-    // בדיקה שהעסק שייך למשתמש
+    // Check if the business exists and belongs to the user
     const { data: business } = await supabase
       .from('businesses')
       .select('id')
@@ -30,7 +30,14 @@ export async function GET(
 
     const { data: appointments, error } = await supabase
       .from('appointments')
-      .select(`*,services!inner(name)`)
+      .select(`*,
+        services (
+          id,
+          name,
+          duration_minutes,
+          price
+        )
+      `)
       .eq('business_id', resolvedParams.id)
       .order('created_at', { ascending: false });
 

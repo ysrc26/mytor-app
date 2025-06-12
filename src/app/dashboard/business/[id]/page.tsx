@@ -1,7 +1,7 @@
 // src/app/dashboard/business/[id]/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import { useRouter, useParams } from 'next/navigation';
 import { Business, Service, Appointment, Availability, User } from '@/lib/types';
@@ -14,6 +14,7 @@ import AvailabilityTable from '@/components/ui/AvailabilityTable';
 import { generateUniqueSlug } from '@/lib/slugUtils';
 import {
     Calendar,
+    Phone,
     Settings,
     Clock,
     Users,
@@ -48,6 +49,8 @@ export default function BusinessDashboard() {
     const [user, setUser] = useState<User | null>(null);
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [availability, setAvailability] = useState<Availability[]>([]);
+    const [newAppointmentAlert, setNewAppointmentAlert] = useState<any>(null);
+    const [realtimeConnected, setRealtimeConnected] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'pending' | 'calendar' | 'appointments' | 'premium'>('pending');
@@ -57,64 +60,6 @@ export default function BusinessDashboard() {
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
-
-
-    // סגירת side navigation
-    const closeSideNav = () => {
-        setSideNavOpen(false);
-    };
-
-    // פונקציה לטיפול בלחיצה על overlay
-    const handleOverlayClick = () => {
-        closeSideNav();
-    };
-
-    // פונקציה לטיפול במקש ESC
-    useEffect(() => {
-        const handleEscKey = (event: KeyboardEvent) => {
-            if (event.key === 'Escape' && sideNavOpen) {
-                closeSideNav();
-            }
-        };
-
-        document.addEventListener('keydown', handleEscKey);
-        return () => {
-            document.removeEventListener('keydown', handleEscKey);
-        };
-    }, [sideNavOpen]);
-
-    // פתיחת modal עם תוכן ספציפי
-    const openModal = (content: 'services' | 'profile' | 'availability') => {
-        setModalContent(content);
-        setModalOpen(true);
-        // לא סוגרים את הניווט - נשאר פתוח אבל מטושטש
-    };
-
-    // סגירת modal
-    const closeModal = () => {
-        setModalOpen(false);
-        setModalContent(null);
-    };
-
-    // פונקציה לטיפול במקש ESC למודל
-    useEffect(() => {
-        const handleEscKey = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                if (modalOpen) {
-                    closeModal(); // סוגר קודם את המודל
-                } else if (sideNavOpen) {
-                    closeSideNav(); // אם אין מודל, סוגר את הניווט
-                }
-            }
-        };
-
-        document.addEventListener('keydown', handleEscKey);
-        return () => {
-            document.removeEventListener('keydown', handleEscKey);
-        };
-    }, [modalOpen, sideNavOpen]);
-
-    // עריכת עסק
     const [editedBusiness, setEditedBusiness] = useState({
         name: '',
         slug: '',
@@ -136,15 +81,204 @@ export default function BusinessDashboard() {
         start_time: '09:00',
         end_time: '17:00'
     });
-
-    const router = useRouter();
-    const supabase = createClient();
+    const subscriptionRef = useRef<any>(null);
 
     useEffect(() => {
         if (businessId) {
             loadBusinessData();
         }
     }, [businessId]);
+
+    // פונקציה לטיפול במקש ESC
+    useEffect(() => {
+        const handleEscKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && sideNavOpen) {
+                closeSideNav();
+            }
+        };
+
+        document.addEventListener('keydown', handleEscKey);
+        return () => {
+            document.removeEventListener('keydown', handleEscKey);
+        };
+    }, [sideNavOpen]);
+
+    // הגדרת subscription לRealtime
+    useEffect(() => {
+        if (!businessId || !user?.id) return;
+
+        console.log('Setting up realtime subscription for business:', businessId);
+
+        // ניקוי subscription קודם אם קיים
+        if (subscriptionRef.current) {
+            console.log('Cleaning up previous subscription');
+            supabase.removeChannel(subscriptionRef.current);
+        }
+
+        // יצירת subscription חדש
+        const channel = supabase
+            .channel(`business-${businessId}-appointments`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'appointments',
+                    filter: `business_id=eq.${businessId}`
+                },
+                (payload) => {
+                    console.log('🎉 New appointment received!', payload.new);
+                    const newAppointment = payload.new as Appointment;
+
+                    // הוספת התור החדש לרשימה
+                    setAppointments(prev => [newAppointment, ...prev]);
+
+                    // הצגת התראה
+                    setNewAppointmentAlert(newAppointment);
+
+                    // הסתרת ההתראה אחרי 60 שניות
+                    setTimeout(() => setNewAppointmentAlert(null), 60000);
+
+                    // השמעת צליל (אם יש הרשאה)
+                    try {
+                        if ('Notification' in window && Notification.permission === 'granted') {
+                            new Notification('🎯 תור חדש!', {
+                                body: `${newAppointment.client_name} ביקש תור`,
+                                icon: '/favicon.ico',
+                                tag: 'new-appointment',
+                                requireInteraction: true
+                            });
+                        }
+
+                        // השמעת צליל פשוט
+                        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmAUCU+h7fG1aRUILXzN8rNjGgU+ldbywHkpBTKCz/LKdSsFK3fJ8N2QQAoRZrDq7qhWFAxPn+HyvmATE0ek6fG3bBoCNX7K8L9oGQU2jdH0xn8tBSpzxPDVjD0IFWi56+WjTwwNUajh8bBjFgY7k9n1vnEpBTJ9yvK9YhUJOIbO8sN1JwU2hdPyvmYdBi6Bz/PAaiUEOYPL9dpzJAUmcsDy2I4+CRVptuvmnUkLDF2o4PK2YxYGOpPZ9b9xKQU0fcP1wGIVCTmGzPLEeTEHL3fH8N+OQAoPZLTo65pTEgxMpOPwtGITB0CT1/W9cSgEOoXQ9L9qGgUtgM7ywHAjBS5/z/LDdygCOpHI9t5zJgQoer7y3I4/CRZqtevmoU4LDF2o4PKxYRUHPJDY9r9xKAU7fMr1wGMTCziGzPLEeCsLL3bH8N2OQAoOZLTo65pTEgxNpOPxs2ETB0GT1/W9cSgEOoXQ9L9qGgYtgM7ywHAjBS5/z/LDdygCPJHI9t5zJgUpeb7y3I4/CRZqtevmoU4LDF2o4PKxYRUHP5DY9r9xKAU7fMr1wGMTCzqGzPLEeCsLL3bH8N2OQAoOZLTo65pTEgxNpOPxs2ETB0GT1/W9cSgEOoXQ9L9qGgYtgM7ywHAjBS5/z/LDdygCO5HI9t5zJgUpeb7y3I4/CRZqtevmoU4LDF2o4PKxYRUHP5DY9r9xKAU7fMr1wGMTCzqGzPLEeCsLL3bH8N2OQAoOZLTo65pTEgxNpOPxs2ETB0GT1/W9cSgEOoXQ9L9qGgYtgM7ywHAjBS5/z/LDdygCO5HI9t5zJgUpeb7y3I4/CRZqtevmoU4LDF2o4PKxYRUHP5DY9r9xKAU7fMr1wGMTCzqGzPLEeCsLL3bH8N2OQAoOZLTo65pTEgxNpOPxs2ETB0GT1/W9cSgEOoXQ9L9qGgYtgM7ywHAjBS5/z/LDdygCO5HI9t5zJgUpeb7y3I4/CRZqtevmoU4LDF2o4PKxYRUHP5DY9r9xKAU7fMr1wGMTCzqGzPLEeCsLL3bH8N2OQAoOZLTo65pTEgxNpOPxs2ETB0GT1/W9cSgEOoXQ9L9qGgYtgM7ywHAjBS5/z/LDdygCO5HI9t5zJgUpeb7y3I4/CRZqtevmoU4LDh');
+                        audio.volume = 0.3;
+                        audio.play().catch(() => { }); // אל תצעק אם לא הצליח
+                    } catch (error) {
+                        console.log('Notification/sound not available:', error);
+                    }
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'appointments',
+                    filter: `business_id=eq.${businessId}`
+                },
+                (payload) => {
+                    console.log('📝 Appointment updated!', payload.new);
+                    const updatedAppointment = payload.new as Appointment;
+
+                    // עדכון התור ברשימה
+                    setAppointments(prev =>
+                        prev.map(apt =>
+                            apt.id === updatedAppointment.id ? updatedAppointment : apt
+                        )
+                    );
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'DELETE',
+                    schema: 'public',
+                    table: 'appointments',
+                    filter: `business_id=eq.${businessId}`
+                },
+                (payload) => {
+                    console.log('🗑️ Appointment deleted!', payload.old);
+                    const deletedId = payload.old.id;
+
+                    // הסרת התור מהרשימה
+                    setAppointments(prev =>
+                        prev.filter(apt => apt.id !== deletedId)
+                    );
+                }
+            )
+            .subscribe((status) => {
+                console.log('Realtime subscription status:', status);
+                setRealtimeConnected(status === 'SUBSCRIBED');
+            });
+
+        subscriptionRef.current = channel;
+
+        // בקשת הרשאות התראות
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().then(permission => {
+                console.log('Notification permission:', permission);
+            });
+        }
+
+        // ניקוי subscription כשהקומפוננט נמחק או הbusinessId משתנה
+        return () => {
+            console.log('Cleaning up realtime subscription');
+            if (subscriptionRef.current) {
+                supabase.removeChannel(subscriptionRef.current);
+                subscriptionRef.current = null;
+            }
+        };
+    }, [businessId, user?.id]); // dependencies
+
+    // פונקציה לטיפול במקש ESC למודל
+    useEffect(() => {
+        const handleEscKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                if (modalOpen) {
+                    closeModal(); // סוגר קודם את המודל
+                } else if (sideNavOpen) {
+                    closeSideNav(); // אם אין מודל, סוגר את הניווט
+                }
+            }
+        };
+
+        document.addEventListener('keydown', handleEscKey);
+        return () => {
+            document.removeEventListener('keydown', handleEscKey);
+        };
+    }, [modalOpen, sideNavOpen]);
+
+    // הסתרת הודעות
+    useEffect(() => {
+        if (success) {
+            const timer = setTimeout(() => setSuccess(null), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [success]);
+
+    useEffect(() => {
+        if (error) {
+            const timer = setTimeout(() => setError(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [error]);
+
+    const router = useRouter();
+    const supabase = createClient();
+
+    // סגירת side navigation
+    const closeSideNav = () => {
+        setSideNavOpen(false);
+    };
+
+    // פונקציה לטיפול בלחיצה על overlay
+    const handleOverlayClick = () => {
+        closeSideNav();
+    };
+
+    // פתיחת modal עם תוכן ספציפי
+    const openModal = (content: 'services' | 'profile' | 'availability') => {
+        setModalContent(content);
+        setModalOpen(true);
+        // לא סוגרים את הניווט - נשאר פתוח אבל מטושטש
+    };
+
+    // סגירת modal
+    const closeModal = () => {
+        setModalOpen(false);
+        setModalContent(null);
+    };
 
     // פונקציה לטעינת כל הנתונים הדרושים לעסק
     const loadBusinessData = async () => {
@@ -427,20 +561,7 @@ export default function BusinessDashboard() {
         return days[dayNumber];
     };
 
-    // הסתרת הודעות
-    useEffect(() => {
-        if (success) {
-            const timer = setTimeout(() => setSuccess(null), 3000);
-            return () => clearTimeout(timer);
-        }
-    }, [success]);
 
-    useEffect(() => {
-        if (error) {
-            const timer = setTimeout(() => setError(null), 5000);
-            return () => clearTimeout(timer);
-        }
-    }, [error]);
 
     if (loading) {
         return (
@@ -494,11 +615,93 @@ export default function BusinessDashboard() {
         }
     };
 
+    // פונקציה לסגירת התראה על תור חדש
+    const dismissAlert = () => setNewAppointmentAlert(null);
+
+    // קומפוננטת התראה על תור חדש
+    const NewAppointmentAlert = ({ appointment, onDismiss }: { appointment: any; onDismiss: () => void }) => {
+        if (!appointment) return null;
+
+        return (
+            <div className="fixed top-4 left-4 z-50 animate-in slide-in-from-left duration-500">
+                <div className="bg-white border-2 border-green-200 rounded-2xl shadow-2xl p-6 min-w-80 max-w-sm">
+                    <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                                <Calendar className="w-6 h-6 text-green-600" />
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-green-800 text-lg">תור חדש! 🎉</h4>
+                                <p className="text-green-600 text-sm">התקבלה בקשה חדשה</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={onDismiss}
+                            className="text-gray-400 hover:text-gray-600 p-1"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                        <div className="flex items-center gap-2">
+                            <Users className="w-4 h-4 text-gray-500" />
+                            <span className="font-medium">{appointment.client_name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Phone className="w-4 h-4 text-gray-500" />
+                            <span className="text-gray-600">{appointment.client_phone}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-gray-500" />
+                            <span className="text-gray-600">{appointment.date} • {appointment.time}</span>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-2 mt-4">
+                        <button
+                            onClick={() => {
+                                updateAppointmentStatus(appointment.id, 'confirmed');
+                                onDismiss();
+                            }}
+                            className="flex-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                            <CheckCircle className="w-4 h-4" />
+                            אשר
+                        </button>
+                        <button
+                            onClick={() => {
+                                updateAppointmentStatus(appointment.id, 'declined');
+                                onDismiss();
+                            }}
+                            className="flex-1 bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                            <AlertCircle className="w-4 h-4" />
+                            דחה
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" style={{ fontFamily: "'Heebo', 'Assistant', sans-serif", direction: 'rtl' }}>
+            {/* new appointment alert */}
+            <NewAppointmentAlert
+                appointment={newAppointmentAlert}
+                onDismiss={dismissAlert}
+            />
             {/* Header */}
             <header className="bg-white/90 backdrop-blur-xl border-b border-gray-200/50 shadow-lg shadow-black/5">
                 <div className="max-w-7xl mx-auto px-6">
+                    {/* אינדיקטור Realtime */}
+                    <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${realtimeConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <span className="text-xs text-gray-500">
+                            {realtimeConnected ? 'מחובר' : 'לא מחובר'}
+                        </span>
+                    </div>
                     <div className="flex justify-between items-center py-4">
                         <div className="flex items-center gap-4">
                             {/* Side Navigation */}

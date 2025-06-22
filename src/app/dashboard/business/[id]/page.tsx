@@ -10,8 +10,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import AvailabilityTable from '@/components/ui/AvailabilityTable';
+import { Calendar as CalendarComponent } from '@/components/ui/Calendar';
 import { generateUniqueSlug } from '@/lib/slugUtils';
+import { AppointmentValidator } from '@/lib/appointment-utils';
+import AvailabilityTable from '@/components/ui/AvailabilityTable';
+
 import {
     Calendar,
     Phone,
@@ -36,7 +39,9 @@ import {
     CheckCircle,
     AlertCircle,
     Loader2,
+    ChevronRight,
     ChevronLeft,
+    MessageCircle,
     Menu,
     X
 } from 'lucide-react';
@@ -59,7 +64,22 @@ export default function BusinessDashboard() {
     const [modalContent, setModalContent] = useState<'services' | 'profile' | 'availability' | null>(null);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [calendarView, setCalendarView] = useState<'day' | 'three-days' | 'week' | 'work-days' | 'month'>('work-days');
+    const [calendarCurrentDate, setCalendarCurrentDate] = useState(new Date());
+    const [appointmentsFilter, setAppointmentsFilter] = useState<'all' | 'pending' | 'confirmed' | 'declined' | 'cancelled'>('all');
+    const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+    const [editModalOpen, setEditModalOpen] = useState(false);
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [appointmentToDelete, setAppointmentToDelete] = useState<string | null>(null);
+    const [createAppointmentModalOpen, setCreateAppointmentModalOpen] = useState(false);
+    const [newAppointmentDate, setNewAppointmentDate] = useState('');
+    const [newAppointmentTime, setNewAppointmentTime] = useState('');
     const [success, setSuccess] = useState<string | null>(null);
+    const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+    const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+    const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [businessAvailability, setBusinessAvailability] = useState<any[]>([]);
+    const [loadingAvailability, setLoadingAvailability] = useState(false);
     const [editedBusiness, setEditedBusiness] = useState({
         name: '',
         slug: '',
@@ -254,6 +274,19 @@ export default function BusinessDashboard() {
         }
     }, [error]);
 
+    // הוסף useEffect לטעינת זמינות כשנפתח המודל:
+    useEffect(() => {
+        if (editModalOpen && editingAppointment) {
+            loadBusinessAvailability();
+            // אתחל תאריך נוכחי
+            const currentDate = new Date(editingAppointment.date);
+            setSelectedDate(currentDate);
+            setCurrentMonth(currentDate);
+            // טען שעות זמינות לתאריך הנוכחי
+            calculateAvailableSlots(currentDate).then(setAvailableSlots);
+        }
+    }, [editModalOpen, editingAppointment]);
+
     const router = useRouter();
     const supabase = createClient();
 
@@ -339,9 +372,22 @@ export default function BusinessDashboard() {
         }
     };
 
-    const fetchAppointments = async () => {
+    const fetchAppointments = async (filters?: {
+        date?: string;
+        status?: string;
+        limit?: number;
+        offset?: number;
+    }) => {
         try {
-            const response = await fetch(`/api/businesses/${businessId}/appointments`);
+            const params = new URLSearchParams();
+            if (filters?.date) params.set('date', filters.date);
+            if (filters?.status) params.set('status', filters.status);
+            if (filters?.limit) params.set('limit', filters.limit.toString());
+            if (filters?.offset) params.set('offset', filters.offset.toString());
+
+            const url = `/api/businesses/${businessId}/appointments${params.toString() ? '?' + params.toString() : ''}`;
+            const response = await fetch(url);
+
             if (response.ok) {
                 const data = await response.json();
                 setAppointments(data);
@@ -581,7 +627,11 @@ export default function BusinessDashboard() {
     const totalAppointments = appointments.length;
 
     // פונקציה לעדכון סטטוס תור
-    const updateAppointmentStatus = async (appointmentId: string, newStatus: 'confirmed' | 'declined' | 'cancelled') => {
+    // ✅ Use the refactored status API:
+    const updateAppointmentStatus = async (
+        appointmentId: string,
+        newStatus: 'confirmed' | 'declined' | 'cancelled'
+    ) => {
         try {
             const response = await fetch(`/api/appointments/${appointmentId}/status`, {
                 method: 'PUT',
@@ -594,14 +644,11 @@ export default function BusinessDashboard() {
                 throw new Error(errorData.error || 'שגיאה בעדכון סטטוס התור');
             }
 
-            // עדכון מקומי של הרשימה
+            // Update local state
             setAppointments(appointments.map(apt =>
-                apt.id === appointmentId
-                    ? { ...apt, status: newStatus }
-                    : apt
+                apt.id === appointmentId ? { ...apt, status: newStatus } : apt
             ));
 
-            // הודעת הצלחה
             const statusText = {
                 'confirmed': 'אושר',
                 'declined': 'נדחה',
@@ -621,7 +668,6 @@ export default function BusinessDashboard() {
     // קומפוננטת התראה על תור חדש
     const NewAppointmentAlert = ({ appointment, onDismiss }: { appointment: any; onDismiss: () => void }) => {
         if (!appointment) return null;
-
         return (
             <div className="fixed top-4 left-4 z-50 animate-in slide-in-from-left duration-500">
                 <div className="bg-white border-2 border-green-200 rounded-2xl shadow-2xl p-6 min-w-80 max-w-sm">
@@ -682,6 +728,386 @@ export default function BusinessDashboard() {
                     </div>
                 </div>
             </div>
+        );
+    };
+
+    // פונקציה למחיקת תור עם אישור
+    // ✅ Use the refactored delete API:
+    const deleteAppointment = async (appointmentId: string) => {
+        try {
+            const response = await fetch(`/api/appointments/${appointmentId}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'שגיאה במחיקת התור');
+            }
+
+            // Update local state
+            setAppointments(appointments.filter(apt => apt.id !== appointmentId));
+            setSuccess('התור נמחק בהצלחה');
+
+            // Close modal
+            setDeleteModalOpen(false);
+            setAppointmentToDelete(null);
+
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'שגיאה במחיקת התור');
+        }
+    };
+
+    // פונקציה לשמירת עריכת תור
+    const saveEditedAppointment = async () => {
+        if (!editingAppointment) return;
+
+        try {
+            // ✅ Use the refactored API endpoint
+            const response = await fetch(`/api/appointments/${editingAppointment.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    date: editingAppointment.date,
+                    time: editingAppointment.time,
+                    service_id: editingAppointment.service_id
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'שגיאה בעדכון התור');
+            }
+
+            const result = await response.json();
+
+            // Update local state
+            setAppointments(appointments.map(apt =>
+                apt.id === editingAppointment.id ? { ...apt, ...result.appointment } : apt
+            ));
+
+            setSuccess('התור עודכן בהצלחה');
+            setEditModalOpen(false);
+            setEditingAppointment(null);
+
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'שגיאה בעדכון התור');
+        }
+    };
+    // פונקציה לטעינת זמינות העסק
+    const loadBusinessAvailability = async () => {
+        try {
+            setLoadingAvailability(true);
+            const response = await fetch(`/api/businesses/${businessId}/availability`);
+            if (response.ok) {
+                const data = await response.json();
+                setBusinessAvailability(data);
+            }
+        } catch (error) {
+            console.error('Error loading availability:', error);
+        } finally {
+            setLoadingAvailability(false);
+        }
+    };
+
+    // פונקציה ליצירת תאריכים זמינים
+    const generateAvailableDays = () => {
+        const days = [];
+        const today = new Date();
+        const currentMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+
+        // Start from first day of month, adjusted to Sunday
+        const startDate = new Date(currentMonthStart);
+        startDate.setDate(startDate.getDate() - startDate.getDay());
+
+        for (let i = 0; i < 42; i++) { // 6 weeks × 7 days
+            const date = new Date(startDate);
+            date.setDate(startDate.getDate() + i);
+
+            const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
+            const isPast = date < today;
+            const dayOfWeek = date.getDay();
+
+            // Check if business has availability for this day
+            const hasAvailability = businessAvailability.some(slot =>
+                slot.day_of_week === dayOfWeek && slot.is_active
+            );
+
+            days.push({
+                date,
+                isCurrentMonth,
+                isPast,
+                hasAvailability: hasAvailability && !isPast && isCurrentMonth,
+                isDisabled: isPast || !hasAvailability || !isCurrentMonth
+            });
+        }
+
+        return days;
+    };
+
+    // פונקציה לחישוב שעות פנויות
+    const calculateAvailableSlots = async (date: Date): Promise<string[]> => {
+        if (!date || !editingAppointment?.service_id) return [];
+
+        try {
+            const dateStr = date.toISOString().split('T')[0];
+            const slots = await AppointmentValidator.getAvailableSlots(
+                businessId,
+                editingAppointment.service_id,
+                dateStr
+            );
+            return slots;
+        } catch (error) {
+            console.error('Error calculating available slots:', error);
+            return [];
+        }
+    };
+
+    // קומפוננטת מודאל יצירת תור - להוסיף לדשבורד
+    // עדכון המודאל בדשבורד - מניעת double submission
+
+    const CreateAppointmentModal = ({
+        isOpen,
+        onClose,
+        selectedDate,
+        selectedTime,
+        services,
+        onSuccess
+    }: {
+        isOpen: boolean;
+        onClose: () => void;
+        selectedDate: string;
+        selectedTime: string;
+        services: Service[];
+        onSuccess: () => void;
+    }) => {
+        const [formData, setFormData] = useState({
+            client_name: '',
+            client_phone: '',
+            service_id: '',
+            note: ''
+        });
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState('');
+        // 🔧 הוספה: מניעת כפילויות
+        const [isSubmitting, setIsSubmitting] = useState(false);
+
+        useEffect(() => {
+            if (isOpen) {
+                setFormData({
+                    client_name: '',
+                    client_phone: '',
+                    service_id: services.length === 1 ? services[0].id : '',
+                    note: ''
+                });
+                setError('');
+                // 🔧 איפוס מצב השליחה
+                setIsSubmitting(false);
+                setLoading(false);
+            }
+        }, [isOpen, services]);
+
+        const handleSubmit = async (e: React.FormEvent) => {
+            e.preventDefault();
+
+            // 🔧 מניעת double submit
+            if (isSubmitting || loading) {
+                return;
+            }
+
+            if (!formData.client_name.trim()) {
+                setError('נא למלא שם לקוח');
+                return;
+            }
+
+            if (!formData.client_phone.trim()) {
+                setError('נא למלא מספר טלפון');
+                return;
+            }
+
+            const phoneRegex = /^05\d{8}$/;
+            if (!phoneRegex.test(formData.client_phone)) {
+                setError('מספר טלפון לא תקין (צריך להתחיל ב-05 ולהכיל 10 ספרות)');
+                return;
+            }
+
+            // 🔧 הגדרת מצבים למניעת כפילויות
+            setIsSubmitting(true);
+            setLoading(true);
+            setError('');
+
+            try {
+                const response = await fetch(`/api/businesses/${businessId}/appointments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        client_name: formData.client_name.trim(),
+                        client_phone: formData.client_phone.trim(),
+                        service_id: formData.service_id || null,
+                        date: selectedDate,
+                        time: selectedTime,
+                        note: formData.note.trim() || null,
+                        status: 'confirmed'
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'שגיאה ביצירת התור');
+                }
+
+                // הצלחה!
+                await onSuccess(); // וודא שזה מסתיים לפני סגירת המודאל
+                onClose();
+
+            } catch (err) {
+                setError(err instanceof Error ? err.message : 'שגיאה ביצירת התור');
+                // 🔧 איפוס מצב השליחה במקרה של שגיאה
+                setIsSubmitting(false);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        if (!isOpen) return null;
+
+        return (
+            <>
+                <div
+                    className="fixed inset-0 bg-black/60 z-[80] backdrop-blur-sm"
+                    onClick={onClose}
+                />
+
+                <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                    <div
+                        className="bg-white rounded-3xl shadow-2xl w-full max-w-md"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-4 text-white rounded-t-3xl">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-lg font-bold">יצירת תור חדש</h3>
+                                    <p className="text-green-100 text-sm">
+                                        {new Date(selectedDate).toLocaleDateString('he-IL', {
+                                            weekday: 'long',
+                                            day: 'numeric',
+                                            month: 'long'
+                                        })} • {selectedTime}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={onClose}
+                                    disabled={loading} // 🔧 מניעת סגירה בזמן שליחה
+                                    className="p-2 hover:bg-white/20 rounded-lg transition-colors disabled:opacity-50"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                            {error && (
+                                <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg text-sm">
+                                    {error}
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    שם לקוח *
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formData.client_name}
+                                    onChange={(e) => setFormData({ ...formData, client_name: e.target.value })}
+                                    disabled={loading} // 🔧 ביטול שדות בזמן שליחה
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                    placeholder="שם מלא"
+                                    required
+                                    autoFocus={!loading}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    מספר טלפון *
+                                </label>
+                                <input
+                                    type="tel"
+                                    value={formData.client_phone}
+                                    onChange={(e) => {
+                                        const value = e.target.value.replace(/\D/g, '');
+                                        setFormData({ ...formData, client_phone: value });
+                                    }}
+                                    disabled={loading} // 🔧 ביטול שדות בזמן שליחה
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                    placeholder="0501234567"
+                                    maxLength={10}
+                                    required
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    מספר טלפון ישראלי (10 ספרות, מתחיל ב-05)
+                                </p>
+                            </div>
+
+                            {services.length > 1 && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        סוג שירות
+                                    </label>
+                                    <select
+                                        value={formData.service_id}
+                                        onChange={(e) => setFormData({ ...formData, service_id: e.target.value })}
+                                        disabled={loading} // 🔧 ביטול שדות בזמן שליחה
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                    >
+                                        <option value="">בחר שירות (אופציונלי)</option>
+                                        {services.map((service) => (
+                                            <option key={service.id} value={service.id}>
+                                                {service.name}
+                                                {service.duration_minutes && ` (${service.duration_minutes} דק')`}
+                                                {service.price && ` - ₪${service.price}`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    הערה (אופציונלי)
+                                </label>
+                                <textarea
+                                    value={formData.note}
+                                    onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+                                    disabled={loading} // 🔧 ביטול שדות בזמן שליחה
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                    rows={2}
+                                    placeholder="הערות נוספות..."
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    disabled={loading} // 🔧 ביטול ביטול בזמן שליחה
+                                    className="flex-1 px-4 py-2 text-gray-600 bg-gray-100 rounded-xl font-medium hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    ביטול
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={loading || isSubmitting || !formData.client_name.trim() || !formData.client_phone.trim()} // 🔧 חסימה נוספת
+                                    className="flex-1 px-4 py-2 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                    {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    {loading ? 'יוצר תור...' : 'צור תור'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </>
         );
     };
 
@@ -899,14 +1325,20 @@ export default function BusinessDashboard() {
                                                         <div className="flex gap-3">
                                                             <button
                                                                 onClick={() => updateAppointmentStatus(appointment.id, 'confirmed')}
-                                                                className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"
+                                                                className="px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2 text-green-700"
+                                                                style={{ backgroundColor: '#DBFCE7' }}
+                                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#BBF7D0'}
+                                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#DBFCE7'}
                                                             >
                                                                 <CheckCircle className="w-4 h-4" />
                                                                 אשר
                                                             </button>
                                                             <button
                                                                 onClick={() => updateAppointmentStatus(appointment.id, 'declined')}
-                                                                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"
+                                                                className="px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2 text-red-700"
+                                                                style={{ backgroundColor: '#FFE2E1' }}
+                                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#FECACA'}
+                                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#FFE2E1'}
                                                             >
                                                                 <AlertCircle className="w-4 h-4" />
                                                                 דחה
@@ -937,79 +1369,192 @@ export default function BusinessDashboard() {
                         )}
                         {activeTab === 'calendar' && (
                             <div>
+                                {/* Header עם כותרת ובחירת תצוגה */}
                                 <div className="flex items-center justify-between mb-6">
-                                    <h3 className="text-xl font-bold text-gray-900">יומן תורים</h3>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-gray-900">יומן תורים</h3>
+                                        <p className="text-gray-600 text-sm mt-1">
+                                            נהל את התורים שלך בתצוגה חזותית ונוחה
+                                        </p>
+                                    </div>
 
                                     {/* בחירת תצוגה */}
                                     <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
                                         {[
-                                            { key: 'day', label: 'יום' },
-                                            { key: 'three-days', label: '3 ימים' },
-                                            { key: 'week', label: 'שבוע' },
-                                            { key: 'work-days', label: 'ימי עבודה' },
-                                            { key: 'month', label: 'חודש' }
+                                            { key: 'day', label: 'יום', icon: '📅' },
+                                            { key: 'three-days', label: '3 ימים', icon: '📊' },
+                                            { key: 'week', label: 'שבוע', icon: '🗓️' },
+                                            { key: 'work-days', label: 'ימי עבודה', icon: '💼', default: true }, // הוסף default flag
+                                            { key: 'month', label: 'חודש', icon: '📆' }
                                         ].map((view) => (
                                             <button
                                                 key={view.key}
-                                                onClick={() => {/* TODO: set calendar view */ }}
-                                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view.key === 'week' // ברירת מחדל שבועית
-                                                    ? 'bg-white text-blue-600 shadow-sm'
-                                                    : 'text-gray-600 hover:text-gray-900'
+                                                onClick={() => setCalendarView(view.key as any)}
+                                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${calendarView === view.key
+                                                    ? 'bg-white text-blue-600 shadow-sm scale-105'
+                                                    : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
                                                     }`}
+                                                title={`תצוגת ${view.label}${view.default ? ' (ברירת מחדל)' : ''}`}
                                             >
-                                                {view.label}
+                                                <span className="text-xs">{view.icon}</span>
+                                                <span className="hidden sm:inline">{view.label}</span>
+                                                {view.default && (
+                                                    <span className="text-xs bg-blue-100 text-blue-600 px-1 rounded">ברירת מחדל</span>
+                                                )}
                                             </button>
                                         ))}
                                     </div>
                                 </div>
 
-                                {/* תצוגת יומן זמנית */}
-                                <div className="bg-white border border-gray-200 rounded-2xl p-6">
-                                    <div className="text-center py-12">
-                                        <Calendar className="w-16 h-16 text-blue-300 mx-auto mb-4" />
-                                        <h4 className="text-lg font-semibold text-gray-900 mb-2">תצוגת יומן מתקדמת</h4>
-                                        <p className="text-gray-600 mb-4">
-                                            כאן תוצג תצוגת יומן שבועית עם כל התורים שלך
-                                        </p>
-                                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 max-w-md mx-auto">
-                                            <h5 className="font-semibold text-blue-900 mb-2">תכונות מתוכננות:</h5>
-                                            <ul className="text-blue-800 text-sm space-y-1 text-right">
-                                                <li>• תצוגה שבועית אינטראקטיבית</li>
-                                                <li>• גרירה ושחרור של תורים</li>
-                                                <li>• תצוגת ימי עבודה בלבד</li>
-                                                <li>• סנכרון עם Google Calendar (פרימיום)</li>
-                                                <li>• הוספת תורים ידנית</li>
-                                            </ul>
+                                {/* קומפוננטת יומן */}
+                                <div className="mb-6">
+                                    <CalendarComponent
+                                        events={appointments.map(apt => ({
+                                            id: apt.id,
+                                            title: `${apt.client_name} - ${(apt as any).services?.name || 'תור'}`,
+                                            clientName: apt.client_name,
+                                            clientPhone: apt.client_phone,
+                                            date: apt.date,
+                                            time: apt.time,
+                                            duration: (apt as any).services?.duration_minutes || 60,
+                                            status: apt.status as 'pending' | 'confirmed' | 'declined' | 'cancelled',
+                                            serviceName: (apt as any).services?.name,
+                                            note: apt.note
+                                        }))}
+                                        availability={availability}
+                                        view={calendarView}
+                                        currentDate={calendarCurrentDate}
+                                        onDateChange={setCalendarCurrentDate}
+                                        onEventClick={(event) => {
+                                            // פתח מודל פרטי התור
+                                            const appointment = appointments.find(apt => apt.id === event.id);
+                                            if (appointment) {
+                                                setEditingAppointment(appointment);
+                                                setEditModalOpen(true);
+                                            }
+                                        }}
+                                        onTimeSlotClick={(date, time) => {
+                                            // שמור את הנתונים ופתח את המודאל
+                                            setNewAppointmentDate(date.toISOString().split('T')[0]);
+                                            setNewAppointmentTime(time);
+                                            setCreateAppointmentModalOpen(true);
+                                        }}
+                                    />
+                                </div>
+
+                                {/* מקרא וסטטיסטיקות */}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* מקרא */}
+                                    <div className="bg-gray-50 rounded-2xl p-6">
+                                        <h4 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                            <span className="text-lg">🎨</span>
+                                            מקרא צבעים
+                                        </h4>
+                                        <div className="grid grid-cols-2 gap-3 text-sm">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-4 h-4 bg-green-500 rounded-lg shadow-sm"></div>
+                                                <span className="font-medium">תורים מאושרים</span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-4 h-4 bg-yellow-400 rounded-lg shadow-sm opacity-75"></div>
+                                                <span className="font-medium">ממתינים לאישור</span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-4 h-4 bg-red-400 rounded-lg shadow-sm opacity-65"></div>
+                                                <span className="font-medium">נדחו</span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-4 h-4 bg-gray-400 rounded-lg shadow-sm opacity-65"></div>
+                                                <span className="font-medium">בוטלו</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-4 pt-4 border-t border-gray-200">
+                                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                                <Plus className="w-4 h-4" />
+                                                <span>לחץ על שעה פנויה ליצירת תור חדש</span>
+                                            </div>
                                         </div>
                                     </div>
 
-                                    {/* תצוגה זמנית של התורים */}
-                                    {appointments.length > 0 && (
-                                        <div className="mt-8">
-                                            <h5 className="font-semibold text-gray-900 mb-4">התורים הקרובים:</h5>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                {appointments
-                                                    .filter(apt => apt.status === 'confirmed')
-                                                    .slice(0, 6)
-                                                    .map((appointment) => (
-                                                        <div key={appointment.id} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                                                                <div className="flex-1">
-                                                                    <p className="font-medium text-gray-900">{appointment.client_name}</p>
-                                                                    <p className="text-sm text-gray-600">
-                                                                        {formatDate(appointment.date)} • {appointment.time}
-                                                                    </p>
-                                                                    {(appointment as any).services.name && (
-                                                                        <p className="text-xs text-blue-600 mt-1">{(appointment as any).services.name}</p>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                    {/* סטטיסטיקות מהירות */}
+                                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6">
+                                        <h4 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                            <span className="text-lg">📊</span>
+                                            תורים קרובים
+                                        </h4>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="text-center">
+                                                <div className="text-2xl font-bold text-blue-600">
+                                                    {appointments.filter(apt =>
+                                                        apt.date === new Date().toISOString().split('T')[0] &&
+                                                        apt.status === 'confirmed'
+                                                    ).length}
+                                                </div>
+                                                <div className="text-sm text-gray-600 font-medium">תורים היום</div>
+                                            </div>
+
+                                            <div className="text-center">
+                                                <div className="text-2xl font-bold text-green-600">
+                                                    {appointments.filter(apt => {
+                                                        const tomorrow = new Date();
+                                                        tomorrow.setDate(tomorrow.getDate() + 1);
+                                                        return apt.date === tomorrow.toISOString().split('T')[0] &&
+                                                            apt.status === 'confirmed';
+                                                    }).length}
+                                                </div>
+                                                <div className="text-sm text-gray-600 font-medium">תורים מחר</div>
+                                            </div>
+
+                                            <div className="text-center">
+                                                <div className="text-2xl font-bold text-orange-600">
+                                                    {appointments.filter(apt => {
+                                                        const today = new Date();
+                                                        const weekFromNow = new Date();
+                                                        weekFromNow.setDate(today.getDate() + 7);
+                                                        const aptDate = new Date(apt.date);
+                                                        return aptDate <= weekFromNow &&
+                                                            aptDate >= today &&
+                                                            apt.status === 'confirmed';
+                                                    }).length}
+                                                </div>
+                                                <div className="text-sm text-gray-600 font-medium">השבוע הקרוב</div>
+                                            </div>
+
+                                            <div className="text-center">
+                                                <div className="text-2xl font-bold text-yellow-600">
+                                                    {appointments.filter(apt => apt.status === 'pending').length}
+                                                </div>
+                                                <div className="text-sm text-gray-600 font-medium">ממתינים לאישור</div>
                                             </div>
                                         </div>
-                                    )}
+                                    </div>
+                                </div>
+
+                                {/* טיפים מהירים */}
+                                <div className="mt-6 bg-blue-50 border border-blue-200 rounded-2xl p-4">
+                                    <h5 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                                        <span className="text-lg">💡</span>
+                                        טיפים לשימוש ביומן
+                                    </h5>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-blue-800 text-sm">
+                                        <div className="flex items-start gap-2">
+                                            <span>👆</span>
+                                            <span>לחץ על תור כדי לערוך או לראות פרטים</span>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <span>➕</span>
+                                            <span>לחץ על שעה פנויה ליצירת תור חדש</span>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <span>🔄</span>
+                                            <span>השתמש בחצים לניווט בין התאריכים</span>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <span>📱</span>
+                                            <span>החלף תצוגה לפי הצורך שלך</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -1022,15 +1567,16 @@ export default function BusinessDashboard() {
                                     <div className="flex items-center gap-4">
                                         <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
                                             {[
+                                                { key: 'all', label: 'הכל', count: appointments.length },
+                                                { key: 'pending', label: 'ממתינים', count: appointments.filter(apt => apt.status === 'pending').length },
                                                 { key: 'confirmed', label: 'מאושרים', count: appointments.filter(apt => apt.status === 'confirmed').length },
                                                 { key: 'declined', label: 'נדחו', count: appointments.filter(apt => apt.status === 'declined').length },
-                                                { key: 'cancelled', label: 'בוטלו', count: appointments.filter(apt => apt.status === 'cancelled').length },
-                                                { key: 'all', label: 'הכל', count: appointments.length }
+                                                { key: 'cancelled', label: 'בוטלו', count: appointments.filter(apt => apt.status === 'cancelled').length }
                                             ].map((filter) => (
                                                 <button
                                                     key={filter.key}
-                                                    onClick={() => {/* TODO: set filter */ }}
-                                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${filter.key === 'confirmed' // ברירת מחדל מאושרים
+                                                    onClick={() => setAppointmentsFilter(filter.key as any)}
+                                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${appointmentsFilter === filter.key
                                                         ? 'bg-white text-blue-600 shadow-sm'
                                                         : 'text-gray-600 hover:text-gray-900'
                                                         }`}
@@ -1046,28 +1592,38 @@ export default function BusinessDashboard() {
                                 </div>
 
                                 {(() => {
-                                    // ברירת מחדל: רק תורים מאושרים, ממוינים לפי תאריך
+                                    // פילטור התורים לפי הסטטוס שנבחר
                                     const filteredAppointments = appointments
-                                        .filter(apt => apt.status === 'confirmed') // TODO: החלף בהתאם לפילטר שנבחר
+                                        .filter(apt => appointmentsFilter === 'all' || apt.status === appointmentsFilter)
                                         .sort((a, b) => {
                                             const dateA = new Date(`${a.date} ${a.time}`);
                                             const dateB = new Date(`${b.date} ${b.time}`);
-                                            return dateA.getTime() - dateB.getTime(); // מיון עולה - הקרוב ביותר קודם
+                                            return dateA.getTime() - dateB.getTime();
                                         });
 
                                     return filteredAppointments.length === 0 ? (
                                         <div className="text-center py-12">
                                             <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                                            <h4 className="text-lg font-semibold text-gray-900 mb-2">אין תורים מאושרים</h4>
+                                            <h4 className="text-lg font-semibold text-gray-900 mb-2">
+                                                {appointmentsFilter === 'all' ? 'אין תורים' : `אין תורים ${appointmentsFilter === 'pending' ? 'ממתינים' :
+                                                    appointmentsFilter === 'confirmed' ? 'מאושרים' :
+                                                        appointmentsFilter === 'declined' ? 'נדחו' : 'בוטלו'
+                                                    }`}
+                                            </h4>
+                                            <p className="text-gray-600">
+                                                {appointmentsFilter === 'all'
+                                                    ? 'כל התורים החדשים יופיעו כאן'
+                                                    : 'שנה את הפילטר כדי לראות תורים אחרים'
+                                                }
+                                            </p>
                                         </div>
                                     ) : (
                                         <div className="space-y-4">
-                                            {filteredAppointments.map((appointment, index) => {
+                                            {filteredAppointments.map((appointment) => {
                                                 const appointmentDate = new Date(`${appointment.date} ${appointment.time}`);
                                                 const now = new Date();
                                                 const isPast = appointmentDate < now;
                                                 const isToday = appointment.date === now.toISOString().split('T')[0];
-                                                const isUpcoming = appointmentDate > now && !isToday;
 
                                                 return (
                                                     <div
@@ -1089,8 +1645,10 @@ export default function BusinessDashboard() {
                                                                         <CheckCircle className="w-6 h-6 text-green-600" />
                                                                     ) : appointment.status === 'declined' ? (
                                                                         <AlertCircle className="w-6 h-6 text-red-600" />
+                                                                    ) : appointment.status === 'cancelled' ? (
+                                                                        <X className="w-6 h-6 text-gray-600" />
                                                                     ) : (
-                                                                        <Clock className="w-6 h-6 text-gray-600" />
+                                                                        <Clock className="w-6 h-6 text-yellow-600" />
                                                                     )}
                                                                 </div>
 
@@ -1115,9 +1673,10 @@ export default function BusinessDashboard() {
                                                                         <span>⏰ {appointment.time}</span>
                                                                     </div>
 
-                                                                    {(appointment as any).services.name && (
+                                                                    {/* אם יש שירות - הצג אותו */}
+                                                                    {appointment.service_id && (
                                                                         <p className="text-blue-600 font-medium text-sm mt-1">
-                                                                            🎯 {(appointment as any).services.name}
+                                                                            🎯 שירות ID: {appointment.service_id}
                                                                         </p>
                                                                     )}
 
@@ -1137,22 +1696,28 @@ export default function BusinessDashboard() {
 
                                                                 {/* פעולות */}
                                                                 <div className="flex gap-2">
-                                                                    {appointment.status === 'confirmed' && !isPast && (
-                                                                        <button
-                                                                            onClick={() => updateAppointmentStatus(appointment.id, 'cancelled')}
-                                                                            className="text-gray-500 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                                                                            title="בטל תור"
-                                                                        >
-                                                                            <AlertCircle className="w-4 h-4" />
-                                                                        </button>
-                                                                    )}
-
+                                                                    {/* כפתור עריכה */}
                                                                     <button
-                                                                        onClick={() => {/* TODO: עריכת תור */ }}
+                                                                        onClick={() => {
+                                                                            setEditingAppointment(appointment);
+                                                                            setEditModalOpen(true);
+                                                                        }}
                                                                         className="text-gray-500 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors"
                                                                         title="ערוך תור"
                                                                     >
                                                                         <Edit className="w-4 h-4" />
+                                                                    </button>
+
+                                                                    {/* כפתור ביטול עם איקס */}
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setAppointmentToDelete(appointment.id);
+                                                                            setDeleteModalOpen(true);
+                                                                        }}
+                                                                        className="text-gray-500 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                                                                        title="בטל תור"
+                                                                    >
+                                                                        <X className="w-4 h-4" />
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -1163,12 +1728,18 @@ export default function BusinessDashboard() {
 
                                             {/* סטטיסטיקה */}
                                             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mt-6">
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
                                                     <div>
                                                         <p className="text-2xl font-bold text-blue-600">
                                                             {appointments.filter(apt => apt.status === 'confirmed').length}
                                                         </p>
                                                         <p className="text-blue-800 text-sm">תורים מאושרים</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-2xl font-bold text-yellow-600">
+                                                            {appointments.filter(apt => apt.status === 'pending').length}
+                                                        </p>
+                                                        <p className="text-yellow-800 text-sm">ממתינים לאישור</p>
                                                     </div>
                                                     <div>
                                                         <p className="text-2xl font-bold text-orange-600">
@@ -1469,6 +2040,7 @@ export default function BusinessDashboard() {
                 </div>
             </div>
             {/* Modal section */}
+            {/* Modal for sidenav */}
             {modalOpen && (
                 <>
                     {/* Modal Overlay - מטשטש הכל כולל הניווט */}
@@ -1720,6 +2292,276 @@ export default function BusinessDashboard() {
                     </div>
                 </>
             )}
+            {/* מודל אישור מחיקה */}
+            {deleteModalOpen && (
+                <>
+                    <div
+                        className="fixed inset-0 bg-black/60 z-[60] backdrop-blur-sm"
+                        onClick={() => {
+                            setDeleteModalOpen(false);
+                            setAppointmentToDelete(null);
+                        }}
+                    />
+                    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md">
+                            <div className="p-6">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
+                                        <AlertCircle className="w-6 h-6 text-red-600" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900">אישור מחיקת תור</h3>
+                                        <p className="text-gray-600 text-sm">פעולה זו לא ניתנת לביטול</p>
+                                    </div>
+                                </div>
+
+                                <p className="text-gray-700 mb-6">
+                                    האם אתה בטוח שברצונך למחוק את התור? הלקוח לא יקבל הודעה על הביטול.
+                                </p>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => {
+                                            setDeleteModalOpen(false);
+                                            setAppointmentToDelete(null);
+                                        }}
+                                        className="flex-1 px-4 py-2 text-gray-600 bg-gray-100 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+                                    >
+                                        ביטול
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (appointmentToDelete) {
+                                                deleteAppointment(appointmentToDelete);
+                                            }
+                                        }}
+                                        className="flex-1 px-4 py-2 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors"
+                                    >
+                                        מחק תור
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* מודל עריכת תור */}
+            {editModalOpen && editingAppointment && (
+                <>
+                    <div
+                        className="fixed inset-0 bg-black/60 z-[60] backdrop-blur-sm"
+                        onClick={() => {
+                            setEditModalOpen(false);
+                            setEditingAppointment(null);
+                            setSelectedDate(null);
+                            setAvailableSlots([]);
+                        }}
+                    />
+                    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+                            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-lg font-bold">עריכת תור</h3>
+                                        <p className="text-blue-100 text-sm">העבר את התור לתאריך ושעה זמינים</p>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            setEditModalOpen(false);
+                                            setEditingAppointment(null);
+                                            setSelectedDate(null);
+                                            setAvailableSlots([]);
+                                        }}
+                                        className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                                    >
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+                                {/* פרטי הלקוח */}
+                                <div className="bg-gray-50 p-4 rounded-xl">
+                                    <h4 className="font-medium text-gray-900 mb-3">פרטי הלקוח</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                        <div className="flex items-center gap-2">
+                                            <Users className="w-4 h-4 text-gray-500" />
+                                            <span className="font-medium">{editingAppointment.client_name}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Phone className="w-4 h-4 text-gray-500" />
+                                            <span>{editingAppointment.client_phone}</span>
+                                        </div>
+                                        {editingAppointment.note && (
+                                            <div className="md:col-span-2 flex items-start gap-2">
+                                                <MessageCircle className="w-4 h-4 text-gray-500 mt-0.5" />
+                                                <span>{editingAppointment.note}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* בחירת תאריך */}
+                                <div>
+                                    <h4 className="font-semibold text-gray-900 mb-4">בחר תאריך חדש</h4>
+
+                                    {/* ניווט חודשים */}
+                                    <div className="flex items-center justify-between mb-4">
+                                        <button
+                                            onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
+                                            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                        >
+                                            <ChevronRight className="w-5 h-5" />
+                                        </button>
+                                        <h3 className="text-lg font-semibold">
+                                            {currentMonth.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}
+                                        </h3>
+                                        <button
+                                            onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
+                                            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                        >
+                                            <ChevronLeft className="w-5 h-5" />
+                                        </button>
+                                    </div>
+
+                                    {/* לוח חודשי */}
+                                    <div className="grid grid-cols-7 gap-1 mb-4 text-center text-sm">
+                                        {['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'].map(day => (
+                                            <div key={day} className="p-2 font-semibold text-gray-600">
+                                                {day}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="grid grid-cols-7 gap-1">
+                                        {generateAvailableDays().map((day, index) => (
+                                            <button
+                                                key={index}
+                                                onClick={() => {
+                                                    if (!day.isDisabled) {
+                                                        setSelectedDate(day.date);
+                                                        calculateAvailableSlots(day.date).then(setAvailableSlots);
+                                                    }
+                                                }}
+                                                disabled={day.isDisabled}
+                                                className={`p-2 text-sm rounded-lg transition-all ${selectedDate && selectedDate.toDateString() === day.date.toDateString()
+                                                    ? 'bg-blue-600 text-white'
+                                                    : day.isDisabled
+                                                        ? 'text-gray-300 cursor-not-allowed'
+                                                        : day.hasAvailability
+                                                            ? 'hover:bg-blue-100 text-gray-900'
+                                                            : 'text-gray-400'
+                                                    }`}
+                                            >
+                                                {day.date.getDate()}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* בחירת שעה */}
+                                {selectedDate && (
+                                    <div>
+                                        <h4 className="font-semibold text-gray-900 mb-3">
+                                            שעות פנויות ב{selectedDate.toLocaleDateString('he-IL')}
+                                        </h4>
+                                        {availableSlots.length > 0 ? (
+                                            <div className="grid grid-cols-4 gap-2">
+                                                {availableSlots.map((time) => (
+                                                    <button
+                                                        key={time}
+                                                        onClick={() => {
+                                                            setEditingAppointment({
+                                                                ...editingAppointment,
+                                                                date: selectedDate.toISOString().split('T')[0],
+                                                                time: time
+                                                            });
+                                                        }}
+                                                        className={`p-3 border rounded-xl transition-all text-center ${editingAppointment.time === time &&
+                                                            editingAppointment.date === selectedDate.toISOString().split('T')[0]
+                                                            ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
+                                                            : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                                                            }`}
+                                                    >
+                                                        {time}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="text-center py-8 text-gray-500">
+                                                <Calendar className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                                                <p>אין שעות פנויות בתאריך זה</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* סוג שירות */}
+                                {services.length > 0 && (
+                                    <div>
+                                        <Label className="block text-sm font-medium text-gray-700 mb-2">סוג שירות</Label>
+                                        <select
+                                            value={editingAppointment.service_id || ''}
+                                            onChange={(e) => setEditingAppointment({
+                                                ...editingAppointment,
+                                                service_id: e.target.value || ''
+                                            })}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="">בחר שירות</option>
+                                            {services.map((service) => (
+                                                <option key={service.id} value={service.id}>
+                                                    {service.name} {service.price && `(₪${service.price})`}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {/* כפתורי פעולה */}
+                                <div className="flex gap-3 pt-4 border-t">
+                                    <button
+                                        onClick={() => {
+                                            setEditModalOpen(false);
+                                            setEditingAppointment(null);
+                                            setSelectedDate(null);
+                                            setAvailableSlots([]);
+                                        }}
+                                        className="flex-1 px-4 py-2 text-gray-600 bg-gray-100 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+                                    >
+                                        ביטול
+                                    </button>
+                                    <button
+                                        onClick={saveEditedAppointment}
+                                        disabled={!selectedDate || !editingAppointment.time}
+                                        className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        שמור שינויים
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+            {/* מודאל יצירת תור חדש */}
+            <CreateAppointmentModal
+                isOpen={createAppointmentModalOpen}
+                onClose={() => {
+                    setCreateAppointmentModalOpen(false);
+                    setNewAppointmentDate('');
+                    setNewAppointmentTime('');
+                }}
+                selectedDate={newAppointmentDate}
+                selectedTime={newAppointmentTime}
+                services={services}
+                onSuccess={() => {
+                    // רענן את רשימת התורים
+                    fetchAppointments();
+                    setSuccess('התור נוצר בהצלחה!');
+                }}
+            />
         </div>
     );
 }

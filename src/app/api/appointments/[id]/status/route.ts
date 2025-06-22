@@ -1,9 +1,9 @@
-// src/app/api/appointments/[id]/status/route.ts
+// src/app/api/appointments/[id]/status/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase-server';
-import { supabasePublic as createPublicClient } from '@/lib/supabase-public';
+import { supabasePublic } from '@/lib/supabase-public';
+import { authenticateRequest, validateAppointmentOwnership } from '@/lib/api-auth';
 
-
+// 📊 Get appointment status (PUBLIC - for client to check)
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -11,109 +11,73 @@ export async function GET(
   try {
     const { id } = await params;
 
-    // יצירת supabase client ציבורי (ללא בדיקת אימות)
-    const supabasePublic = createPublicClient;
-
-    // שליפת פרטי התור
+    // 🌐 PUBLIC ACCESS - no authentication required
     const { data: appointmentData, error } = await supabasePublic
       .from('appointments')
       .select(`
-        id,
-        client_name,
-        client_phone,
-        date,
-        time,
-        status,
-        created_at,
+        id, 
+        client_name, 
+        client_phone, 
+        date, 
+        time, 
+        status, 
+        created_at, 
         note,
-        user_id,
-        business_id,
-        service_id
+        businesses!inner(name, phone),
+        services!inner(name, duration_minutes, price)
       `)
       .eq('id', id)
       .single();
 
     if (error || !appointmentData) {
-      return NextResponse.json(
-        { error: 'התור לא נמצא' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'התור לא נמצא' }, { status: 404 });
     }
 
-    // בדיקה אם התור לא פג תוקפו (תורים ישנים מ-24 שעות נמחקים מהעמוד)
-    const appointmentDate = new Date(`${appointmentData.date}T${appointmentData.time}`);
+    // ⏰ Check if appointment is too old (24+ hours after appointment time)
+    const appointmentDateTime = new Date(`${appointmentData.date}T${appointmentData.time}`);
     const now = new Date();
-    const hoursPassed = (now.getTime() - appointmentDate.getTime()) / (1000 * 60 * 60);
+    const hoursPassed = (now.getTime() - appointmentDateTime.getTime()) / (1000 * 60 * 60);
 
-    // אם התור עבר ביותר מ-24 שעות והוא מאושר, הסתר את העמוד
     if (hoursPassed > 24 && appointmentData.status === 'confirmed') {
-      return NextResponse.json(
-        { error: 'התור כבר הסתיים' },
-        { status: 410 }
-      );
+      return NextResponse.json({ error: 'התור כבר הסתיים' }, { status: 410 });
     }
 
-    // שליפת פרטי העסק
-    console.log('Fetching business data for appointment:', appointmentData.business_id);
-    const { data: businessData, error: businessError } = await supabasePublic
-      .from('businesses')
-      .select('name, phone')
-      .eq('id', appointmentData.business_id)
-      .single();
+    // ✅ Fix: Handle services as array and extract first service
+    const serviceData = Array.isArray((appointmentData as any).services) 
+      ? (appointmentData as any).services[0] 
+      : (appointmentData as any).services;
 
-    if (businessError || !businessData) {
-      return NextResponse.json(
-        { error: 'פרטי העסק לא נמצאו' },
-        { status: 404 }
-      );
-    }
-    // שליפת פרטי השירות
-    const { data: serviceData, error: serviceError } = await supabasePublic
-      .from('services')
-      .select('name, duration_minutes, price')
-      .eq('id', appointmentData.service_id)
-      .single();
+    const businessData = Array.isArray((appointmentData as any).businesses)
+      ? (appointmentData as any).businesses[0]
+      : (appointmentData as any).businesses;
 
-    // אם השירות לא נמצא, נמשיך בלי להחזיר פרטי שירות
-    if (serviceError || !serviceData) {
-      // נרשום את השגיאה אך לא נחזיר שגיאה ללקוח
-      console.error('Error fetching service data:', serviceError);
-    }
-
-    const appointment = appointmentData;
-
-    // יצירת התגובה עם כל הפרטים הנדרשים
-    const response = {
-      id: appointment.id,
-      client_name: appointment.client_name,
-      client_phone: appointment.client_phone,
-      date: appointment.date,
-      time: appointment.time,
-      status: appointment.status,
-      created_at: appointment.created_at,
-      note: appointment.note,
+    return NextResponse.json({
+      id: appointmentData.id,
+      client_name: appointmentData.client_name,
+      client_phone: appointmentData.client_phone,
+      date: appointmentData.date,
+      time: appointmentData.time,
+      status: appointmentData.status,
+      created_at: appointmentData.created_at,
+      note: appointmentData.note,
       business: {
-        name: businessData.name,
-        phone: businessData.phone
+        name: businessData?.name || '',
+        phone: businessData?.phone || ''
       },
       service: serviceData ? {
         name: serviceData.name,
         duration_minutes: serviceData.duration_minutes,
         price: serviceData.price
       } : null
-    };
-
-    return NextResponse.json(response);
+    });
 
   } catch (error) {
     console.error('Error fetching appointment status:', error);
-    return NextResponse.json(
-      { error: 'שגיאת שרת פנימית' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'שגיאת שרת פנימית' }, { status: 500 });
   }
 }
 
+// 🔄 Update appointment status (PROTECTED - for business owner)
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -122,31 +86,36 @@ export async function PUT(
     const { status } = await request.json();
     const { id } = await params;
 
+    // ✅ Validate status
     if (!['confirmed', 'declined', 'cancelled'].includes(status)) {
-      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+      return NextResponse.json({ error: 'סטטוס לא תקין' }, { status: 400 });
     }
 
-    // יצירת Supabase client עם אימות
-    const supabase = await createClient();
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // 🔒 Authenticate user
+    const auth = await authenticateRequest(request);
+    if (!auth.user) {
+      return NextResponse.json({ error: auth.error }, { status: 401 });
     }
 
-    // עדכון הסטטוס רק אם התור שייך למשתמש
-    const { error: updateError } = await supabase
+    // 🔒 Validate appointment ownership
+    const ownership = await validateAppointmentOwnership(auth.user.id, id);
+    if (!ownership.isOwner) {
+      return NextResponse.json({ error: ownership.error }, { status: 404 });
+    }
+
+    // 🔄 Update status
+    const { error: updateError } = await supabasePublic
       .from('appointments')
       .update({ status })
-      .eq('id', id)
-      .eq('user_id', user.id);
+      .eq('id', id);
 
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      console.error('Status update error:', updateError);
+      return NextResponse.json({ error: 'שגיאה בעדכון סטטוס התור' }, { status: 500 });
     }
 
-    // TODO: שליחת הודעה ללקוח על השינוי
+    // 📧 TODO: Send status change notification to client
+    // await sendStatusChangeNotification(appointment.client_phone, status);
 
     return NextResponse.json({
       message: 'סטטוס התור עודכן בהצלחה',
@@ -155,6 +124,7 @@ export async function PUT(
     });
 
   } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('Error updating appointment status:', error);
+    return NextResponse.json({ error: 'שגיאת שרת פנימית' }, { status: 500 });
   }
 }

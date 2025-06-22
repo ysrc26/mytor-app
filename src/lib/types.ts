@@ -23,6 +23,45 @@ export interface AvailableSlotsResponse {
   total_slots: number;
 }
 
+// ===== Calendar Types =====
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  clientName: string;
+  clientPhone: string;
+  date: string; // YYYY-MM-DD format
+  time: string; // HH:MM format
+  duration: number; // בדקות
+  status: 'pending' | 'confirmed' | 'declined' | 'cancelled';
+  serviceName?: string;
+  note?: string;
+}
+
+export interface CalendarAvailability {
+  day_of_week: number; // 0-6 (ראשון-שבת)
+  start_time: string; // HH:MM format
+  end_time: string; // HH:MM format
+  is_active: boolean;
+}
+
+export type CalendarView = 'day' | 'three-days' | 'week' | 'work-days' | 'month';
+
+export interface TimeSlot {
+  time: string;
+  available: boolean;
+  hasEvents: boolean;
+  events: CalendarEvent[];
+}
+
+export interface CalendarDay {
+  date: Date;
+  isCurrentMonth: boolean;
+  events: CalendarEvent[];
+  hasAvailability: boolean;
+  isPast: boolean;
+}
+
 // ===== Existing Types =====
 
 export interface BookingService {

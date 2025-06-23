@@ -26,41 +26,46 @@ const MonthView: React.FC<MonthViewProps> = ({
   const monthDays = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
-    
+
     // יום ראשון בחודש
     const firstDay = new Date(year, month, 1);
     // יום אחרון בחודש
     const lastDay = new Date(year, month + 1, 0);
-    
+
     // יום ראשון שמוצג (ראשון השבוע של היום הראשון)
     const startDate = new Date(firstDay);
     startDate.setDate(firstDay.getDate() - firstDay.getDay());
-    
+
     // יום אחרון שמוצג
     const endDate = new Date(lastDay);
     endDate.setDate(lastDay.getDate() + (6 - lastDay.getDay()));
-    
+
     const days: Date[] = [];
     const current = new Date(startDate);
-    
+
     while (current <= endDate) {
       days.push(new Date(current));
       current.setDate(current.getDate() + 1);
     }
-    
+
     return days;
   }, [currentDate]);
 
   // קבלת אירועים לתאריך מסוים
   const getEventsForDate = (date: Date): CalendarEvent[] => {
-    const dateStr = date.toISOString().split('T')[0];
+    // 🔧 תיקון: שימוש בתאריך מקומי במקום UTC
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
     return events.filter(event => event.date === dateStr);
   };
 
   // בדיקה אם התאריך זמין (יש זמינות ביום הזה)
   const isDateAvailable = (date: Date): boolean => {
     const dayOfWeek = date.getDay();
-    return availability.some(avail => 
+    return availability.some(avail =>
       avail.day_of_week === dayOfWeek && avail.is_active
     );
   };
@@ -134,7 +139,7 @@ const MonthView: React.FC<MonthViewProps> = ({
               </button>
             </div>
           </div>
-          
+
           <button
             onClick={() => onDateChange(new Date())}
             className="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -170,10 +175,17 @@ const MonthView: React.FC<MonthViewProps> = ({
               <div
                 key={index}
                 className={`
-                  bg-white min-h-[120px] p-2 relative cursor-pointer transition-all hover:bg-gray-50
+                  bg-white min-h-[120px] p-2 relative transition-all
                   ${!currentMonth ? 'opacity-40' : ''}
+                  ${isAvailable && currentMonth ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed'}
+                  ${!isAvailable && currentMonth ? 'bg-gray-100' : ''}
                 `}
-                onClick={() => onTimeSlotClick && onTimeSlotClick(date, '09:00')}
+                onClick={() => {
+                  // 🔧 תיקון: רק ימים זמינים לחיצים
+                  if (onTimeSlotClick && isAvailable && currentMonth) {
+                    onTimeSlotClick(date, '09:00');
+                  }
+                }}
               >
                 {/* תאריך */}
                 <div className="flex items-center justify-between mb-2">
@@ -190,7 +202,7 @@ const MonthView: React.FC<MonthViewProps> = ({
                   >
                     {date.getDate()}
                   </span>
-                  
+
                   {/* אינדיקטור זמינות */}
                   {isAvailable && currentMonth && (
                     <div className="w-2 h-2 bg-green-400 rounded-full" title="יום פעיל" />
@@ -220,7 +232,7 @@ const MonthView: React.FC<MonthViewProps> = ({
                       </div>
                     </div>
                   ))}
-                  
+
                   {/* אירועים נוספים */}
                   {dayEvents.length > 3 && (
                     <div className="text-xs text-gray-500 font-medium">
@@ -229,14 +241,16 @@ const MonthView: React.FC<MonthViewProps> = ({
                   )}
                 </div>
 
-                {/* כפתור הוספת תור (רק בימים זמינים) */}
+                {/* כפתור הוספת תור (רק בימים זמינים וריקים) */}
                 {isAvailable && currentMonth && dayEvents.length === 0 && (
                   <div className="absolute bottom-2 left-2">
                     <button
                       className="w-6 h-6 bg-blue-100 hover:bg-blue-200 rounded-full flex items-center justify-center transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onTimeSlotClick && onTimeSlotClick(date, '09:00');
+                        if (onTimeSlotClick) {
+                          onTimeSlotClick(date, '09:00');
+                        }
                       }}
                       title="הוסף תור"
                     >

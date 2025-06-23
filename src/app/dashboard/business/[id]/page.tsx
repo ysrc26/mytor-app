@@ -13,6 +13,7 @@ import { Calendar as CalendarComponent } from '@/components/ui/Calendar';
 import MonthView from '@/components/ui/MonthView';
 import { generateUniqueSlug } from '@/lib/slugUtils';
 import { AppointmentValidator } from '@/lib/appointment-utils';
+import { timeUtils } from '@/lib/time-utils';
 import AvailabilityTable from '@/components/ui/AvailabilityTable';
 import {
     Business, Service,
@@ -1442,8 +1443,7 @@ export default function BusinessDashboard() {
                                             }
                                         }}
                                         onTimeSlotClick={(date, time) => {
-                                            // שמור את הנתונים ופתח את המודאל
-                                            setNewAppointmentDate(date.toISOString().split('T')[0]);
+                                            setNewAppointmentDate(timeUtils.formatDateForAPI(date));
                                             setNewAppointmentTime(time);
                                             setCreateAppointmentModalOpen(true);
                                         }}

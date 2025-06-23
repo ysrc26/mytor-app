@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Calendar as CalendarComponent } from '@/components/ui/Calendar';
+import MonthView from '@/components/ui/MonthView';
 import { generateUniqueSlug } from '@/lib/slugUtils';
 import { AppointmentValidator } from '@/lib/appointment-utils';
 import AvailabilityTable from '@/components/ui/AvailabilityTable';

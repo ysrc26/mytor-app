@@ -37,11 +37,13 @@ export const Calendar: React.FC<CalendarProps> = ({
   }, []);
 
   // פונקציות עזר
-  const generateTimeSlots = (startHour: number = 6, endHour: number = 23, intervalMinutes: number = 30): string[] => {
+  const generateTimeSlots = (startHour: number = 0, endHour: number = 24, intervalMinutes: number = 30): string[] => {
     const slots: string[] = [];
-    for (let hour = startHour; hour <= endHour; hour++) {
+    for (let hour = startHour; hour < endHour; hour++) { // שנה <= ל-
       for (let minute = 0; minute < 60; minute += intervalMinutes) {
-        if (hour === endHour && minute > 0) break;
+        // עצור ב-23:30
+        if (hour === 23 && minute > 30) break;
+
         const timeSlot = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
         slots.push(timeSlot);
       }
@@ -62,19 +64,22 @@ export const Calendar: React.FC<CalendarProps> = ({
     return `${newHours.toString().padStart(2, '0')}:${newMins.toString().padStart(2, '0')}`;
   };
 
-  const getEventsForDateTime = (events: CalendarEvent[], date: Date, timeSlot: string): CalendarEvent[] => {
-    const dateStr = date.toISOString().split('T')[0];
+  const getEventsForDateTime = (events: CalendarEvent[], date: Date, slotHour: number, slotMinute: number): CalendarEvent[] => {
     return events.filter(event => {
-      if (event.date !== dateStr) return false;
-
+      const eventStartDate = event.date;
       const eventStartTime = event.time;
-      const eventEndTime = addMinutesToTime(event.time, event.duration_minutes);
-      const slotMinutes = timeToMinutes(timeSlot);
-      const eventStartMinutes = timeToMinutes(eventStartTime);
-      const eventEndMinutes = timeToMinutes(eventEndTime);
+      const eventDurationMinutes = event.duration_minutes;
 
-      // האירוע מוצג אם הslot נמצא בין תחילת האירוע לסיומו
-      return slotMinutes >= eventStartMinutes && slotMinutes < eventEndMinutes;
+      // חישוב תאריך וזמן התחלה וסיום של האירוע
+      const eventStart = new Date(`${eventStartDate}T${eventStartTime}`);
+      const eventEnd = new Date(eventStart.getTime() + eventDurationMinutes * 60000);
+
+      // חישוב תאריך וזמן של ה-slot הנוכחי
+      const slotDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), slotHour, slotMinute);
+      const slotEndTime = new Date(slotDateTime.getTime() + 30 * 60000);
+
+      // האירוע רלוונטי אם יש חפיפה כלשהי עם ה-slot - בלי קשר לתאריך ההתחלה
+      return eventStart < slotEndTime && eventEnd > slotDateTime;
     });
   };
 
@@ -181,9 +186,9 @@ export const Calendar: React.FC<CalendarProps> = ({
     const hours = now.getHours();
     const minutes = now.getMinutes();
 
-    if (hours < 6 || hours > 23) {
-      return { showLine: false, percentage: 0 };
-    }
+    // if (hours < 6 || hours > 23) {
+    //   return { showLine: false, percentage: 0 };
+    // }
 
     const [slotHour, slotMinute] = timeSlot.split(':').map(Number);
     const slotMinutes = slotHour * 60 + slotMinute;
@@ -198,7 +203,7 @@ export const Calendar: React.FC<CalendarProps> = ({
     return { showLine: false, percentage: 0 };
   };
 
-  const timeSlots = useMemo(() => generateTimeSlots(6, 23, 30), []);
+  const timeSlots = useMemo(() => generateTimeSlots(0, 24, 30), []);
   const displayDates = useMemo(() => {
     return generateDisplayDates(currentDate, view, availability);
   }, [currentDate, view, availability]);
@@ -293,85 +298,137 @@ export const Calendar: React.FC<CalendarProps> = ({
           ))}
 
           {/* Time Slots and Events */}
-          {timeSlots.map((timeSlot, timeIndex) => (
-            <React.Fragment key={timeSlot}>
-              {/* Time Label */}
-              <div className="p-2 text-xs text-gray-500 font-medium border-b border-gray-100 bg-gray-50">
-                {timeSlot}
-              </div>
+          {timeSlots.map((timeSlot, timeIndex) => {
+            const [slotHour, slotMinute] = timeSlot.split(':').map(Number); // פעם אחת לכל slot
 
-              {/* Time Slot Columns */}
-              {displayDates.map((date, dateIndex) => {
-                const slotEvents = getEventsForDateTime(events, date, timeSlot);
-                const isAvailable = hasAvailability(availability, date, timeSlot);
-                const timePosition = getCurrentTimePosition(timeSlot);
-                const showCurrentTime = isToday(date) && timePosition.showLine;
-                const isPast = isPastTime(date, timeSlot);
+            return (
+              <React.Fragment key={timeSlot}>
+                {/* Time Label */}
+                <div className="p-2 text-xs text-gray-500 font-medium border-b border-gray-100 bg-gray-50">
+                  {timeSlot}
+                </div>
 
-                return (
-                  <div
-                    key={`${date.toISOString()}-${timeSlot}`}
-                    className={`relative border-b border-gray-100 min-h-[50px] cursor-pointer transition-colors ${isPast
-                      ? 'bg-gray-50'
-                      : isAvailable
-                        ? 'hover:bg-blue-50'
-                        : 'bg-gray-25'
-                      }`}
-                    onClick={() => !isPast && isAvailable && onTimeSlotClick(date, timeSlot)}
-                  >
-                    {/* Current Time Line */}
-                    {showCurrentTime && (
-                      <div
-                        className="absolute left-0 right-0 h-0.5 bg-red-500 z-20"
-                        style={{ top: `${timePosition.percentage}%` }}
-                      >
-                        <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full"></div>
-                      </div>
-                    )}
+                {/* Time Slot Columns */}
+                {displayDates.map((date, dateIndex) => {
+                  const slotDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), slotHour, slotMinute);
+                  const slotEvents = getEventsForDateTime(events, date, slotHour, slotMinute);
+                  const isAvailable = hasAvailability(availability, date, timeSlot);
+                  const timePosition = getCurrentTimePosition(timeSlot);
+                  const showCurrentTime = isToday(date) && timePosition.showLine;
+                  const isPast = isPastTime(date, timeSlot);
 
-                    {/* Events */}
-                    {slotEvents.map((event, eventIndex) => (
-                      <div
-                        key={eventIndex}
-                        className={`absolute left-1 right-1 p-2 text-xs rounded-lg cursor-pointer transition-all hover:opacity-80 z-10 ${getEventStatusColor(event.status)}`}
-                        style={{
-                          height: `${calculateEventHeight(event.duration_minutes)}px`,
-                          top: '2px'
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEventClick(event);
-                        }}
-                      >
-                        <div className="font-medium truncate">{event.client_name}</div>
-                        <div className="flex items-center gap-1 mt-1 opacity-75">
-                          <Clock className="w-3 h-3" />
-                          <span>{event.time}</span>
+                  return (
+                    <div
+                      key={`${date.toISOString()}-${timeSlot}`}
+                      className={`relative border-b border-gray-100 min-h-[50px] cursor-pointer transition-colors ${isPast
+                        ? 'bg-gray-50'
+                        : isAvailable
+                          ? 'hover:bg-blue-50'
+                          : 'bg-gray-25'
+                        }`}
+                      onClick={() => !isPast && isAvailable && onTimeSlotClick(date, timeSlot)}
+                    >
+                      {/* Current Time Line */}
+                      {showCurrentTime && (
+                        <div
+                          className="absolute left-0 right-0 h-0.5 bg-red-500 z-20 shadow-sm"
+                          style={{ top: `${timePosition.percentage}%` }}
+                        >
+                          <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full shadow-sm"></div>
+                          <div className="absolute -left-16 -top-3 bg-red-500 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+                            {currentTime.toLocaleTimeString('he-IL', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: false
+                            })}
+                          </div>
                         </div>
-                        {event.service_name && (
-                          <div className="truncate text-xs opacity-75">{event.service_name}</div>
-                        )}
-                      </div>
-                    ))}
+                      )}
 
-                    {/* Add Button for Available Empty Slots */}
-                    {slotEvents.length === 0 && !isPast && isAvailable && (
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                        <Plus className="w-4 h-4 text-gray-400" />
-                      </div>
-                    )}
+                      {/* Events */}
+                      {slotEvents.map((event, eventIndex) => {
+                        const eventStart = new Date(`${event.date}T${event.time}`);
+                        const slotDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), slotHour, slotMinute);
 
-                    {/* Unavailable indicator */}
-                    {!isAvailable && !isPast && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="text-gray-300 text-xs">לא זמין</div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </React.Fragment>
-          ))}
+                        // בדוק אם זה ה-slot הראשון של האירוע ביום הזה
+                        let isFirstSlotInDay = false;
+
+                        // אם האירוע מתחיל ביום הזה
+                        if (eventStart.toDateString() === date.toDateString()) {
+                          const eventStartHour = eventStart.getHours();
+                          const eventStartMinute = Math.floor(eventStart.getMinutes() / 30) * 30;
+                          isFirstSlotInDay = (slotHour === eventStartHour && slotMinute === eventStartMinute);
+                        }
+                        // אם האירוע מתחיל ביום אחר אבל נמשך ליום הזה
+                        else if (eventStart < slotDateTime) {
+                          // זה ה-slot הראשון של היום (00:00)
+                          isFirstSlotInDay = (slotHour === 0 && slotMinute === 0);
+                        }
+
+                        // הצג אירוע רק ב-slot הראשון של כל יום
+                        if (!isFirstSlotInDay) return null;
+
+                        // חישוב גובה האירוע עבור היום הזה
+                        const eventEnd = new Date(eventStart.getTime() + event.duration_minutes * 60000);
+                        const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0);
+                        const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59);
+
+                        // חישוב כמה דקות מהאירוע בתוך היום הזה
+                        const eventStartInDay = eventStart > dayStart ? eventStart : dayStart;
+                        const eventEndInDay = eventEnd < dayEnd ? eventEnd : dayEnd;
+                        const minutesInDay = (eventEndInDay.getTime() - eventStartInDay.getTime()) / 60000;
+
+                        const eventHeight = Math.ceil(minutesInDay / 30) * 50; // 50px לכל slot
+
+                        return (
+                          <div
+                            key={`${event.id}-${date.toDateString()}-${timeSlot}`}
+                            className={`absolute left-1 right-1 p-2 text-xs rounded-lg cursor-pointer transition-all hover:opacity-80 z-10 ${getEventStatusColor(event.status)}`}
+                            style={{
+                              height: `${eventHeight}px`,
+                              top: '2px'
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEventClick(event);
+                            }}
+                          >
+                            <div className="font-medium truncate">{event.client_name}</div>
+                            <div className="flex items-center gap-1 mt-1 opacity-75">
+                              <Clock className="w-3 h-3" />
+                              <span>{event.time}</span>
+                              {event.duration_minutes > 60 && (
+                                <span className="text-xs">
+                                  ({Math.floor(event.duration_minutes / 60)}ש {event.duration_minutes % 60 > 0 ? `${event.duration_minutes % 60}ד` : ''})
+                                </span>
+                              )}
+                            </div>
+                            {event.service_name && (
+                              <div className="truncate text-xs opacity-75 mt-1">{event.service_name}</div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {/* Add Button for Available Empty Slots */}
+                      {slotEvents.length === 0 && !isPast && isAvailable && (
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                          <Plus className="w-4 h-4 text-gray-400" />
+                        </div>
+                      )}
+
+                      {/* Unavailable indicator */}
+                      {!isAvailable && !isPast && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="text-gray-300 text-xs">לא זמין</div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
         </div>
       </div>
     </div>

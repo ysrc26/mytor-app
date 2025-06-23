@@ -27,15 +27,14 @@ export interface AvailableSlotsResponse {
 
 export interface CalendarEvent {
   id: string;
-  title: string;
-  clientName: string;
-  clientPhone: string;
+  client_name: string; // שם הלקוח
+  client_phone: string; // טלפון הלקוח
   date: string; // YYYY-MM-DD format
   time: string; // HH:MM format
-  duration: number; // בדקות
+  duration_minutes: number; // משך בדקות
   status: 'pending' | 'confirmed' | 'declined' | 'cancelled';
-  serviceName?: string;
-  note?: string;
+  service_name?: string; // שם השירות
+  note?: string; // הערות
 }
 
 export interface CalendarAvailability {
@@ -273,6 +272,12 @@ export interface SlotGenerationOptions {
   includeEndTime?: boolean; // ברירת מחדל: false
 }
 
+// Appointment עם יחסים כפי שמגיע מה-API
+export interface AppointmentWithService extends Appointment {
+  service?: Service;
+  services?: Service; // לפעמים מגיע בשם הזה מ-Supabase
+}
+
 // ===== Form Validation Types =====
 
 export interface ValidationError {
@@ -350,3 +355,17 @@ export const isValidDateFormat = (date: string): boolean => {
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
   return dateRegex.test(date) && !isNaN(Date.parse(date));
 };
+
+// ===== Utility Functions =====
+// פונקציה להמרה
+export const mapToCalendarEvent = (apt: any): CalendarEvent => ({
+  id: apt.id,
+  client_name: apt.client_name,
+  client_phone: apt.client_phone,
+  date: apt.date,
+  time: apt.time,
+  duration_minutes: apt.service?.duration_minutes || apt.services?.duration_minutes || 60,
+  status: apt.status,
+  service_name: apt.service?.name || apt.services?.name,
+  note: apt.note
+});

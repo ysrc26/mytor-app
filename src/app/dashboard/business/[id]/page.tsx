@@ -4,7 +4,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import { useRouter, useParams } from 'next/navigation';
-import { Business, Service, Appointment, Availability, User } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +13,14 @@ import { Calendar as CalendarComponent } from '@/components/ui/Calendar';
 import { generateUniqueSlug } from '@/lib/slugUtils';
 import { AppointmentValidator } from '@/lib/appointment-utils';
 import AvailabilityTable from '@/components/ui/AvailabilityTable';
+import {
+    Business, Service,
+    Appointment, Availability,
+    User, CalendarEvent,
+    CalendarAvailability, CalendarView,
+    mapToCalendarEvent
+} from '@/lib/types';
+
 
 import {
     Calendar,
@@ -64,10 +71,13 @@ export default function BusinessDashboard() {
     const [modalContent, setModalContent] = useState<'services' | 'profile' | 'availability' | null>(null);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [calendarView, setCalendarView] = useState<'day' | 'three-days' | 'week' | 'work-days' | 'month'>('work-days');
+    // const [calendarView, setCalendarView] = useState<'day' | 'three-days' | 'week' | 'work-days' | 'month'>('work-days');
+    const [calendarView, setCalendarView] = useState<CalendarView>('week');
+    const [calendarDate, setCalendarDate] = useState(new Date());
     const [calendarCurrentDate, setCalendarCurrentDate] = useState(new Date());
     const [appointmentsFilter, setAppointmentsFilter] = useState<'all' | 'pending' | 'confirmed' | 'declined' | 'cancelled'>('all');
     const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+    const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [appointmentToDelete, setAppointmentToDelete] = useState<string | null>(null);
@@ -85,6 +95,14 @@ export default function BusinessDashboard() {
         slug: '',
         description: '',
         terms: ''
+    });
+    const [newAppointment, setNewAppointment] = useState({
+        date: '',
+        time: '',
+        client_name: '',
+        client_phone: '',
+        service_id: '',
+        note: ''
     });
 
     // שירות חדש
@@ -1409,18 +1427,7 @@ export default function BusinessDashboard() {
                                 {/* קומפוננטת יומן */}
                                 <div className="mb-6">
                                     <CalendarComponent
-                                        events={appointments.map(apt => ({
-                                            id: apt.id,
-                                            title: `${apt.client_name} - ${(apt as any).services?.name || 'תור'}`,
-                                            clientName: apt.client_name,
-                                            clientPhone: apt.client_phone,
-                                            date: apt.date,
-                                            time: apt.time,
-                                            duration: (apt as any).services?.duration_minutes || 60,
-                                            status: apt.status as 'pending' | 'confirmed' | 'declined' | 'cancelled',
-                                            serviceName: (apt as any).services?.name,
-                                            note: apt.note
-                                        }))}
+                                        events={appointments.map(mapToCalendarEvent)}
                                         availability={availability}
                                         view={calendarView}
                                         currentDate={calendarCurrentDate}

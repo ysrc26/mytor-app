@@ -115,7 +115,7 @@ const MonthView: React.FC<MonthViewProps> = ({
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      {/* Header */}
+      {/* Header
       <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -147,7 +147,7 @@ const MonthView: React.FC<MonthViewProps> = ({
             היום
           </button>
         </div>
-      </div>
+      </div> */}
 
       {/* Calendar Grid */}
       <div className="p-6">

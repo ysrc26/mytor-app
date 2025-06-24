@@ -74,7 +74,7 @@ export default function BusinessDashboard() {
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState<string | null>(null);
     // const [calendarView, setCalendarView] = useState<'day' | 'three-days' | 'week' | 'work-days' | 'month'>('work-days');
-    const [calendarView, setCalendarView] = useState<CalendarView>('week');
+    const [calendarView, setCalendarView] = useState<CalendarView>('work-days');
     const [calendarDate, setCalendarDate] = useState(new Date());
     const [calendarCurrentDate, setCalendarCurrentDate] = useState(new Date());
     const [appointmentsFilter, setAppointmentsFilter] = useState<'all' | 'pending' | 'confirmed' | 'declined' | 'cancelled'>('all');
@@ -906,6 +906,10 @@ export default function BusinessDashboard() {
             service_id: '',
             note: ''
         });
+        const [appointmentDate, setAppointmentDate] = useState('');
+        const [appointmentTime, setAppointmentTime] = useState('');
+        const [customServiceName, setCustomServiceName] = useState('');
+        const [appointmentEndTime, setAppointmentEndTime] = useState('');
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState('');
         // 🔧 הוספה: מניעת כפילויות
@@ -919,12 +923,53 @@ export default function BusinessDashboard() {
                     service_id: services.length === 1 ? services[0].id : '',
                     note: ''
                 });
+                // הגדר תאריך ושעה מהפרמטרים שהתקבלו
+                if (selectedDate) {
+                    // אם selectedDate הוא תאריך מלא, המר אותו
+                    if (selectedDate.includes('-')) {
+                        setAppointmentDate(selectedDate);
+                    } else {
+                        // אם זה רק התאריך הנוכחי, המר לפורמט YYYY-MM-DD
+                        const today = new Date();
+                        setAppointmentDate(today.toISOString().split('T')[0]);
+                    }
+                } else {
+                    // ברירת מחדל - היום
+                    const today = new Date();
+                    setAppointmentDate(today.toISOString().split('T')[0]);
+                }
+
+                setAppointmentTime(selectedTime || '09:00');
+
+                setCustomServiceName('');
+                setAppointmentEndTime('');
+
                 setError('');
                 // 🔧 איפוס מצב השליחה
                 setIsSubmitting(false);
                 setLoading(false);
             }
-        }, [isOpen, services]);
+        }, [isOpen, selectedDate, selectedTime, services]);
+
+        const calculateEndTime = (startTime: string, durationMinutes: number): string => {
+            const [hours, minutes] = startTime.split(':').map(Number);
+            const totalMinutes = hours * 60 + minutes + durationMinutes;
+            const endHours = Math.floor(totalMinutes / 60);
+            const endMins = totalMinutes % 60;
+            return `${endHours.toString().padStart(2, '0')}:${endMins.toString().padStart(2, '0')}`;
+        };
+
+        useEffect(() => {
+            if (formData.service_id && appointmentTime) {
+                const selectedService = services.find(s => s.id === formData.service_id);
+                if (selectedService?.duration_minutes) {
+                    const endTime = calculateEndTime(appointmentTime, selectedService.duration_minutes);
+                    setAppointmentEndTime(endTime);
+                }
+            } else if (!formData.service_id) {
+                setAppointmentEndTime('');
+            }
+        }, [formData.service_id, appointmentTime, services]);
 
         const handleSubmit = async (e: React.FormEvent) => {
             e.preventDefault();
@@ -950,10 +995,59 @@ export default function BusinessDashboard() {
                 return;
             }
 
+            if (!appointmentDate) {
+                setError('נא לבחור תאריך');
+                return;
+            }
+
+            if (!appointmentTime) {
+                setError('נא לבחור שעה');
+                return;
+            }
+
+            if (!formData.service_id) {
+                if (!customServiceName.trim()) {
+                    setError('נא להזין שם שירות');
+                    return;
+                }
+
+                if (!appointmentEndTime) {
+                    setError('נא לבחור שעת סיום');
+                    return;
+                }
+
+                const startMinutes = appointmentTime.split(':').reduce((h, m) => h * 60 + Number(m), 0);
+                const endMinutes = appointmentEndTime.split(':').reduce((h, m) => h * 60 + Number(m), 0);
+
+                if (endMinutes <= startMinutes) {
+                    setError('שעת הסיום חייבת להיות אחרי שעת ההתחלה');
+                    return;
+                }
+            }
+
+            // בדיקה שהתאריך לא בעבר
+            const appointmentDateTime = new Date(`${appointmentDate} ${appointmentTime}`);
+            if (appointmentDateTime < new Date()) {
+                setError('לא ניתן לקבוע תור בעבר');
+                return;
+            }
+
             // 🔧 הגדרת מצבים למניעת כפילויות
             setIsSubmitting(true);
             setLoading(true);
             setError('');
+
+            // חשב משך התור
+            let durationMinutes = 60; // ברירת מחדל
+            if (formData.service_id) {
+                const selectedService = services.find(s => s.id === formData.service_id);
+                durationMinutes = selectedService?.duration_minutes || 60;
+            } else if (appointmentEndTime) {
+                // חשב משך התור מהשעות
+                const startMinutes = appointmentTime.split(':').reduce((h, m) => h * 60 + Number(m), 0);
+                const endMinutes = appointmentEndTime.split(':').reduce((h, m) => h * 60 + Number(m), 0);
+                durationMinutes = endMinutes - startMinutes;
+            }
 
             try {
                 const response = await fetch(`/api/businesses/${businessId}/appointments`, {
@@ -963,8 +1057,10 @@ export default function BusinessDashboard() {
                         client_name: formData.client_name.trim(),
                         client_phone: formData.client_phone.trim(),
                         service_id: formData.service_id || null,
-                        date: selectedDate,
-                        time: selectedTime,
+                        custom_service_name: !formData.service_id ? customServiceName.trim() : null,
+                        duration_minutes: durationMinutes,
+                        date: appointmentDate,
+                        time: appointmentTime,
                         note: formData.note.trim() || null,
                         status: 'confirmed'
                     })
@@ -1007,11 +1103,15 @@ export default function BusinessDashboard() {
                                 <div>
                                     <h3 className="text-lg font-bold">יצירת תור חדש</h3>
                                     <p className="text-green-100 text-sm">
-                                        {new Date(selectedDate).toLocaleDateString('he-IL', {
-                                            weekday: 'long',
-                                            day: 'numeric',
-                                            month: 'long'
-                                        })} • {selectedTime}
+                                        {appointmentDate && appointmentTime ? (
+                                            `${new Date(appointmentDate).toLocaleDateString('he-IL', {
+                                                weekday: 'long',
+                                                day: 'numeric',
+                                                month: 'long'
+                                            })} • ${appointmentTime}`
+                                        ) : (
+                                            'בחר תאריך ושעה'
+                                        )}
                                     </p>
                                 </div>
                                 <button
@@ -1069,6 +1169,37 @@ export default function BusinessDashboard() {
                                 </p>
                             </div>
 
+                            {/* תאריך - ניתן לעריכה */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    תאריך *
+                                </label>
+                                <input
+                                    type="date"
+                                    value={appointmentDate}
+                                    onChange={(e) => setAppointmentDate(e.target.value)}
+                                    disabled={loading}
+                                    min={new Date().toISOString().split('T')[0]}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                    required
+                                />
+                            </div>
+
+                            {/* שעה - ניתנת לעריכה */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    שעה *
+                                </label>
+                                <input
+                                    type="time"
+                                    value={appointmentTime}
+                                    onChange={(e) => setAppointmentTime(e.target.value)}
+                                    disabled={loading}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                    required
+                                />
+                            </div>
+
                             {services.length > 1 && (
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1091,6 +1222,77 @@ export default function BusinessDashboard() {
                                     </select>
                                 </div>
                             )}
+
+                            {/* אם לא נבחר שירות - הצג שדות מותאמים אישית */}
+                            {!formData.service_id && (
+                                <>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            שם השירות *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={customServiceName}
+                                            onChange={(e) => setCustomServiceName(e.target.value)}
+                                            disabled={loading}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                            placeholder="לדוגמה: תיקונים, שינוי צבע, טיפול מותאם"
+                                            required
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            תאר את השירות שתבצע ללקוחה
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            שעת סיום *
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={appointmentEndTime}
+                                            onChange={(e) => setAppointmentEndTime(e.target.value)}
+                                            disabled={loading}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                            required
+                                        />
+                                        {appointmentTime && appointmentEndTime && (
+                                            <p className="text-xs text-green-600 mt-1">
+                                                משך התור: {(() => {
+                                                    const startMinutes = appointmentTime.split(':').reduce((h, m) => h * 60 + Number(m), 0);
+                                                    const endMinutes = appointmentEndTime.split(':').reduce((h, m) => h * 60 + Number(m), 0);
+                                                    const duration = endMinutes - startMinutes;
+                                                    if (duration > 0) {
+                                                        return duration < 60 ? `${duration} דקות` :
+                                                            duration % 60 === 0 ? `${Math.floor(duration / 60)} שעות` :
+                                                                `${Math.floor(duration / 60)} שעות ו-${duration % 60} דקות`;
+                                                    }
+                                                    return 'שעת סיום לא תקינה';
+                                                })()}
+                                            </p>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+
+                            {/* אם נבחר שירות - הצג פרטי השירות */}
+                            {formData.service_id && (() => {
+                                const selectedService = services.find(s => s.id === formData.service_id);
+                                return selectedService && (
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                        <h4 className="text-sm font-medium text-blue-900 mb-1">פרטי השירות:</h4>
+                                        <p className="text-sm text-blue-700">
+                                            {selectedService.name} • {selectedService.duration_minutes} דקות
+                                            {selectedService.price && ` • ₪${selectedService.price}`}
+                                        </p>
+                                        {appointmentTime && (
+                                            <p className="text-xs text-blue-600 mt-1">
+                                                סיום משוער: {calculateEndTime(appointmentTime, selectedService.duration_minutes)}
+                                            </p>
+                                        )}
+                                    </div>
+                                );
+                            })()}
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">

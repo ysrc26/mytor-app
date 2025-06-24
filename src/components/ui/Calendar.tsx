@@ -1,7 +1,7 @@
 // src/components/ui/Calendar.tsx
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { CalendarEvent, CalendarAvailability, CalendarView } from '@/lib/types';
 import { getEventStatusColor } from '@/lib/calendar-utils';
 import { ChevronLeft, ChevronRight, Clock, Users, Plus } from 'lucide-react';
@@ -29,13 +29,79 @@ export const Calendar: React.FC<CalendarProps> = ({
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showDeclined, setShowDeclined] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const previousViewRef = useRef<CalendarView | null>(null);
 
+  // Update current time every minute
   useEffect(() => {
     const updateCurrentTime = () => setCurrentTime(new Date());
     updateCurrentTime();
 
     const timer = setInterval(updateCurrentTime, 60000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Scroll to default time slot on mount
+  // Default time slot is set to 6:00 AM
+  useEffect(() => {
+    const scrollToDefaultTime = () => {
+      if (!scrollContainerRef.current) return;
+
+      // גלילה לשעה 8:00 בבוקר (slot index 12)
+      const defaultSlotIndex = 8; // 8:00 AM
+
+      // גובה כל משבצת
+      const slotHeight = 51;
+
+      // חישוב המיקום
+      const scrollPosition = defaultSlotIndex * slotHeight;
+
+      // גלילה מיידית
+      scrollContainerRef.current.scrollTo({
+        top: scrollPosition,
+        behavior: 'auto'
+      });
+    };
+
+    // גלול רק אם:
+    // 1. זה הפעם הראשונה (previousViewRef.current הוא null)
+    // 2. או אם חזרנו מתצוגת חודש לתצוגה אחרת
+    const shouldScroll = (
+      previousViewRef.current === null || // פעם ראשונה
+      (previousViewRef.current === 'month' && view !== 'month') // חזרה מחודש
+    );
+
+    if (shouldScroll && view !== 'month') {
+      const timeoutId = setTimeout(scrollToDefaultTime, 50);
+      previousViewRef.current = view; // עדכן את התצוגה הקודמת
+      return () => clearTimeout(timeoutId);
+    } else {
+      previousViewRef.current = view; // עדכן את התצוגה הקודמת גם אם לא גללנו
+    }
+  }, [view]);
+
+  useEffect(() => {
+    const scrollToDefaultTime = () => {
+      if (!scrollContainerRef.current) return;
+
+      console.log('First load - scrolling to 8 AM');
+
+      // גלילה לשעה 8:00 בבוקר
+      const defaultSlotIndex = 8;
+      const slotHeight = 51;
+      const scrollPosition = defaultSlotIndex * slotHeight;
+
+      scrollContainerRef.current.scrollTo({
+        top: scrollPosition,
+        behavior: 'auto'
+      });
+    };
+
+    // גלול רק אם זה לא תצוגת חודש
+    if (view !== 'month') {
+      const timeoutId = setTimeout(scrollToDefaultTime, 100); // delay יותר ארוך לטעינה ראשונה
+      return () => clearTimeout(timeoutId);
+    }
   }, []);
 
   // פונקציות עזר
@@ -91,7 +157,7 @@ export const Calendar: React.FC<CalendarProps> = ({
       const eventEnd = new Date(eventStart.getTime() + eventDurationMinutes * 60000);
 
       const slotDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), slotHour, slotMinute);
-      const slotEndTime = new Date(slotDateTime.getTime() + 30 * 60000);
+      const slotEndTime = new Date(slotDateTime.getTime() + 60 * 60000);
 
       return eventStart < slotEndTime && eventEnd > slotDateTime;
     });
@@ -170,7 +236,7 @@ export const Calendar: React.FC<CalendarProps> = ({
 
   const calculateEventHeight = (durationMinutes: number): number => {
     const minHeight = 40;
-    const calculatedHeight = (durationMinutes / 30) * 30;
+    const calculatedHeight = (durationMinutes / 60) * 60;
     return Math.max(minHeight, calculatedHeight);
   };
 
@@ -202,17 +268,17 @@ export const Calendar: React.FC<CalendarProps> = ({
     const [slotHour, slotMinute] = timeSlot.split(':').map(Number);
     const slotMinutes = slotHour * 60 + slotMinute;
     const currentMinutes = hours * 60 + minutes;
-    const nextSlotMinutes = slotMinutes + 30;
+    const nextSlotMinutes = slotMinutes + 60;
 
     if (currentMinutes >= slotMinutes && currentMinutes < nextSlotMinutes) {
-      const percentage = ((currentMinutes - slotMinutes) / 30) * 100;
+      const percentage = ((currentMinutes - slotMinutes) / 60) * 100;
       return { showLine: true, percentage };
     }
 
     return { showLine: false, percentage: 0 };
   };
 
-  const timeSlots = useMemo(() => generateTimeSlots(0, 24, 30), []);
+  const timeSlots = useMemo(() => generateTimeSlots(0, 24, 60), []);
   const displayDates = useMemo(() => {
     return generateDisplayDates(currentDate, view, availability);
   }, [currentDate, view, availability]);
@@ -411,7 +477,7 @@ export const Calendar: React.FC<CalendarProps> = ({
           onTimeSlotClick={onTimeSlotClick}
         />
       ) : (
-        <div className="overflow-auto max-h-[600px]">
+        <div ref={scrollContainerRef} className="overflow-auto max-h-[600px]">
           <div className="grid relative" style={{ gridTemplateColumns: `80px repeat(${displayDates.length}, 1fr)` }}>
             {/* Header Row - Days */}
             <div className="sticky top-0 bg-gray-50 p-4 border-b border-gray-200 z-10"></div>

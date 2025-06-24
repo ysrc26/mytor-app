@@ -1450,91 +1450,55 @@ export default function BusinessDashboard() {
                                     />
                                 </div>
 
-                                {/* מקרא וסטטיסטיקות */}
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                    {/* מקרא */}
-                                    <div className="bg-gray-50 rounded-2xl p-6">
-                                        <h4 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                            <span className="text-lg">🎨</span>
-                                            מקרא צבעים
-                                        </h4>
-                                        <div className="grid grid-cols-2 gap-3 text-sm">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-4 h-4 bg-green-500 rounded-lg shadow-sm"></div>
-                                                <span className="font-medium">תורים מאושרים</span>
+                                {/* סטטיסטיקות מהירות */}
+                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6">
+                                    <h4 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                        <span className="text-lg">📊</span>
+                                        תורים קרובים
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="text-center">
+                                            <div className="text-2xl font-bold text-blue-600">
+                                                {appointments.filter(apt =>
+                                                    apt.date === new Date().toISOString().split('T')[0] &&
+                                                    apt.status === 'confirmed'
+                                                ).length}
                                             </div>
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-4 h-4 bg-yellow-400 rounded-lg shadow-sm opacity-75"></div>
-                                                <span className="font-medium">ממתינים לאישור</span>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-4 h-4 bg-red-400 rounded-lg shadow-sm opacity-65"></div>
-                                                <span className="font-medium">נדחו</span>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-4 h-4 bg-gray-400 rounded-lg shadow-sm opacity-65"></div>
-                                                <span className="font-medium">בוטלו</span>
-                                            </div>
+                                            <div className="text-sm text-gray-600 font-medium">תורים היום</div>
                                         </div>
 
-                                        <div className="mt-4 pt-4 border-t border-gray-200">
-                                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                                                <Plus className="w-4 h-4" />
-                                                <span>לחץ על שעה פנויה ליצירת תור חדש</span>
+                                        <div className="text-center">
+                                            <div className="text-2xl font-bold text-green-600">
+                                                {appointments.filter(apt => {
+                                                    const tomorrow = new Date();
+                                                    tomorrow.setDate(tomorrow.getDate() + 1);
+                                                    return apt.date === tomorrow.toISOString().split('T')[0] &&
+                                                        apt.status === 'confirmed';
+                                                }).length}
                                             </div>
+                                            <div className="text-sm text-gray-600 font-medium">תורים מחר</div>
                                         </div>
-                                    </div>
 
-                                    {/* סטטיסטיקות מהירות */}
-                                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6">
-                                        <h4 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                            <span className="text-lg">📊</span>
-                                            תורים קרובים
-                                        </h4>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="text-center">
-                                                <div className="text-2xl font-bold text-blue-600">
-                                                    {appointments.filter(apt =>
-                                                        apt.date === new Date().toISOString().split('T')[0] &&
-                                                        apt.status === 'confirmed'
-                                                    ).length}
-                                                </div>
-                                                <div className="text-sm text-gray-600 font-medium">תורים היום</div>
+                                        <div className="text-center">
+                                            <div className="text-2xl font-bold text-orange-600">
+                                                {appointments.filter(apt => {
+                                                    const today = new Date();
+                                                    const weekFromNow = new Date();
+                                                    weekFromNow.setDate(today.getDate() + 7);
+                                                    const aptDate = new Date(apt.date);
+                                                    return aptDate <= weekFromNow &&
+                                                        aptDate >= today &&
+                                                        apt.status === 'confirmed';
+                                                }).length}
                                             </div>
+                                            <div className="text-sm text-gray-600 font-medium">השבוע הקרוב</div>
+                                        </div>
 
-                                            <div className="text-center">
-                                                <div className="text-2xl font-bold text-green-600">
-                                                    {appointments.filter(apt => {
-                                                        const tomorrow = new Date();
-                                                        tomorrow.setDate(tomorrow.getDate() + 1);
-                                                        return apt.date === tomorrow.toISOString().split('T')[0] &&
-                                                            apt.status === 'confirmed';
-                                                    }).length}
-                                                </div>
-                                                <div className="text-sm text-gray-600 font-medium">תורים מחר</div>
+                                        <div className="text-center">
+                                            <div className="text-2xl font-bold text-yellow-600">
+                                                {appointments.filter(apt => apt.status === 'pending').length}
                                             </div>
-
-                                            <div className="text-center">
-                                                <div className="text-2xl font-bold text-orange-600">
-                                                    {appointments.filter(apt => {
-                                                        const today = new Date();
-                                                        const weekFromNow = new Date();
-                                                        weekFromNow.setDate(today.getDate() + 7);
-                                                        const aptDate = new Date(apt.date);
-                                                        return aptDate <= weekFromNow &&
-                                                            aptDate >= today &&
-                                                            apt.status === 'confirmed';
-                                                    }).length}
-                                                </div>
-                                                <div className="text-sm text-gray-600 font-medium">השבוע הקרוב</div>
-                                            </div>
-
-                                            <div className="text-center">
-                                                <div className="text-2xl font-bold text-yellow-600">
-                                                    {appointments.filter(apt => apt.status === 'pending').length}
-                                                </div>
-                                                <div className="text-sm text-gray-600 font-medium">ממתינים לאישור</div>
-                                            </div>
+                                            <div className="text-sm text-gray-600 font-medium">ממתינים לאישור</div>
                                         </div>
                                     </div>
                                 </div>

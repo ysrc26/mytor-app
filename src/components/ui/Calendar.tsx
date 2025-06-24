@@ -239,32 +239,123 @@ export const Calendar: React.FC<CalendarProps> = ({
     onDateChange(newDate);
   };
 
+  const getHeaderText = (): string => {
+    switch (view) {
+      case 'day': {
+        return currentDate.toLocaleDateString('he-IL', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        });
+      }
+
+      case 'three-days': {
+        const startDate = new Date(currentDate);
+        const endDate = new Date(currentDate);
+        endDate.setDate(startDate.getDate() + 2);
+
+        const start = startDate.getDate();
+        const end = endDate.getDate();
+        const startMonth = startDate.toLocaleDateString('he-IL', { month: 'long' });
+        const endMonth = endDate.toLocaleDateString('he-IL', { month: 'long' });
+        const year = startDate.getFullYear();
+
+        // בדיקה אם זה אותו חודש
+        if (startDate.getMonth() === endDate.getMonth()) {
+          return `${start}-${end} ${startMonth} ${year}`;
+        } else {
+          return `${start} ${startMonth} - ${end} ${endMonth} ${year}`;
+        }
+      }
+
+      case 'week': {
+        const sunday = new Date(currentDate);
+        sunday.setDate(currentDate.getDate() - currentDate.getDay());
+        const saturday = new Date(sunday);
+        saturday.setDate(sunday.getDate() + 6);
+
+        const start = sunday.getDate();
+        const end = saturday.getDate();
+        const startMonth = sunday.toLocaleDateString('he-IL', { month: 'long' });
+        const endMonth = saturday.toLocaleDateString('he-IL', { month: 'long' });
+        const year = sunday.getFullYear();
+
+        // בדיקה אם זה אותו חודש
+        if (sunday.getMonth() === saturday.getMonth()) {
+          return `${start}-${end} ${startMonth} ${year}`;
+        } else {
+          return `${start} ${startMonth} - ${end} ${endMonth} ${year}`;
+        }
+      }
+
+      case 'work-days': {
+        const workDays = availability
+          .filter(avail => avail.is_active)
+          .map(avail => avail.day_of_week)
+          .sort();
+
+        if (workDays.length === 0) {
+          return currentDate.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
+        }
+
+        const weekStart = new Date(currentDate);
+        weekStart.setDate(currentDate.getDate() - currentDate.getDay());
+
+        const firstWorkDay = new Date(weekStart);
+        firstWorkDay.setDate(weekStart.getDate() + workDays[0]);
+
+        const lastWorkDay = new Date(weekStart);
+        lastWorkDay.setDate(weekStart.getDate() + workDays[workDays.length - 1]);
+
+        const start = firstWorkDay.getDate();
+        const end = lastWorkDay.getDate();
+        const startMonth = firstWorkDay.toLocaleDateString('he-IL', { month: 'long' });
+        const endMonth = lastWorkDay.toLocaleDateString('he-IL', { month: 'long' });
+        const year = firstWorkDay.getFullYear();
+
+        // בדיקה אם זה אותו חודש
+        if (firstWorkDay.getMonth() === lastWorkDay.getMonth()) {
+          return `${start}-${end} ${startMonth} ${year}`;
+        } else {
+          return `${start} ${startMonth} - ${end} ${endMonth} ${year}`;
+        }
+      }
+
+      case 'month':
+      default: {
+        return currentDate.toLocaleDateString('he-IL', {
+          month: 'long',
+          year: 'numeric'
+        });
+      }
+    }
+  };
+
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
       {/* Header */}
       <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h3 className="text-lg font-semibold text-gray-900">
-              {currentDate.toLocaleDateString('he-IL', {
-                month: 'long',
-                year: 'numeric'
-              })}
-            </h3>
+          <div className="flex items-center gap-6">
             <div className="flex items-center gap-1">
               <button
                 onClick={() => navigateDate('prev')}
-                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                className="p-2 hover:bg-gray-200 rounded-full transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
               <button
                 onClick={() => navigateDate('next')}
-                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                className="p-2 hover:bg-gray-200 rounded-full transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
             </div>
+
+            <h3 className="text-lg font-semibold text-gray-900">
+              {getHeaderText()}
+            </h3>
           </div>
 
           <button
@@ -325,7 +416,7 @@ export const Calendar: React.FC<CalendarProps> = ({
             {/* Header Row - Days */}
             <div className="sticky top-0 bg-gray-50 p-4 border-b border-gray-200 z-10"></div>
             {displayDates.map((date, index) => (
-              <div key={index} className="sticky top-0 bg-gray-50 p-4 border-b border-gray-200 text-center z-10">
+              <div key={index} className="sticky top-0 bg-gray-50 p-4 border-b border-gray-200 text-center z-30">
                 <div className="font-medium text-gray-900">
                   {getShortDayName(date)}
                 </div>
@@ -417,7 +508,7 @@ export const Calendar: React.FC<CalendarProps> = ({
                           return (
                             <div
                               key={`${event.id}-${date.toDateString()}-${timeSlot}`}
-                              className={`absolute left-1 right-1 p-2 text-xs rounded-lg cursor-pointer transition-all hover:opacity-80 z-10 ${getEventStatusColor(event.status)}`}
+                              className={`absolute left-1 right-1 p-2 text-xs rounded-lg cursor-pointer transition-all hover:opacity-80 z-20 ${getEventStatusColor(event.status)}`}
                               style={{
                                 height: `${eventHeight}px`,
                                 top: '2px'
@@ -463,6 +554,33 @@ export const Calendar: React.FC<CalendarProps> = ({
                 </React.Fragment>
               );
             })}
+          </div>
+        </div>
+      )}
+      {/* Legend for non-month views */}
+      {view !== 'month' && (
+        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50">
+          <div className="flex flex-wrap gap-4 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-yellow-200 border-l-2 border-yellow-400 rounded-sm" />
+              <span className="text-gray-600">ממתין לאישור</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-green-200 border-l-2 border-green-400 rounded-sm" />
+              <span className="text-gray-600">מאושר</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-red-200 border-l-2 border-red-400 rounded-sm" />
+              <span className="text-gray-600">נדחה</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-gray-200 border-l-2 border-gray-400 rounded-sm" />
+              <span className="text-gray-600">בוטל</span>
+            </div>
+            <div className="flex items-center gap-2 ml-4 border-l border-gray-300 pl-4">
+              <Plus className="w-3 h-3 text-gray-500" />
+              <span className="text-gray-600">לחץ על שעה פנויה ליצירת תור</span>
+            </div>
           </div>
         </div>
       )}

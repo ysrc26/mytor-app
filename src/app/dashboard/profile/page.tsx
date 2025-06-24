@@ -54,7 +54,7 @@ export default function ProfilePage() {
 
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session) {
       router.push('/auth/login');
       return;
@@ -69,13 +69,26 @@ export default function ProfilePage() {
       const response = await fetch('/api/users/me');
       if (response.ok) {
         const data = await response.json();
-        setUser(data.user);
+
+        // הוספת הלוגיקה לתמונת גוגל
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        let profilePicUrl = data.user.profile_pic || '';
+
+        // אם אין תמונה מותאמת אישית, נסה לקבל מGoogle
+        if (!profilePicUrl && authUser?.user_metadata?.avatar_url) {
+          profilePicUrl = authUser.user_metadata.avatar_url;
+        }
+
+        setUser({
+          ...data.user,
+          profile_pic: profilePicUrl
+        });
         setEditedUser({
           full_name: data.user.full_name,
           phone: data.user.phone,
-          profile_pic: data.user.profile_pic || ''
+          profile_pic: profilePicUrl // כאן גם!
         });
-        setPreviewUrl(data.user.profile_pic || null);
+        setPreviewUrl(profilePicUrl || null);
       }
     } catch (error) {
       console.error('Error fetching user data:', error);
@@ -83,30 +96,113 @@ export default function ProfilePage() {
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 🔒 פונקציה שמטפלת בבחירת קובץ תמונה
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // בדיקת סוג קובץ
-    if (!file.type.startsWith('image/')) {
-      setError('יש לבחור קובץ תמונה בלבד');
+    // 🔒 בדיקת סוג קובץ - רק JPG ו-PNG
+    const validImageTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+    if (!validImageTypes.includes(file.type)) {
+      setError('יש לבחור קובץ תמונה בפורמט JPG או PNG בלבד');
       return;
     }
 
-    // בדיקת גודל (מקסימום 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      setError('גודל התמונה לא יכול לעלות על 5MB');
+    // 🔒 בדיקת גודל קובץ ראשוני - 2MB מקסימום לפני דחיסה
+    const maxInitialSizeMB = 2;
+    const maxInitialSizeBytes = maxInitialSizeMB * 1024 * 1024;
+    if (file.size > maxInitialSizeBytes) {
+      setError(`גודל התמונה המקורית לא יכול לעלות על ${maxInitialSizeMB}MB`);
       return;
     }
 
-    setSelectedFile(file);
-    
-    // יצירת תצוגה מקדימה
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setPreviewUrl(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    // 🔒 בדיקה נוספת - קריאה של הקובץ כדי לוודא שזה באמת תמונה
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      // בדיקת Magic Numbers (File Signatures)
+      const isValidImage = validateImageHeader(uint8Array);
+      if (!isValidImage) {
+        setError('הקובץ שנבחר אינו תמונה תקינה');
+        return;
+      }
+
+      // 📦 דחיסת התמונה
+      setError(null); // נקה שגיאות קודמות
+      const compressedFile = await compressImage(file, 400); // רוחב מקסימלי 400px
+
+      // 🔒 בדיקת גודל אחרי דחיסה - 500KB מקסימום
+      const maxFinalSizeKB = 500;
+      const maxFinalSizeBytes = maxFinalSizeKB * 1024;
+      if (compressedFile.size > maxFinalSizeBytes) {
+        setError(`גודל התמונה אחרי דחיסה (${Math.round(compressedFile.size / 1024)}KB) עדיין גדול מ-${maxFinalSizeKB}KB. נסה תמונה קטנה יותר`);
+        return;
+      }
+
+      // ✅ הכל בסדר - שמור את הקובץ הדחוס
+      setSelectedFile(compressedFile);
+
+      // יצירת תצוגה מקדימה
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPreviewUrl(e.target?.result as string);
+      };
+      reader.readAsDataURL(compressedFile);
+
+      // הודעת הצלחה
+      const originalSizeKB = Math.round(file.size / 1024);
+      const compressedSizeKB = Math.round(compressedFile.size / 1024);
+      console.log(`תמונה נדחסה מ-${originalSizeKB}KB ל-${compressedSizeKB}KB`);
+
+    } catch (error) {
+      console.error('Error processing image:', error);
+      setError('שגיאה בעיבוד התמונה');
+      return;
+    }
+  };
+
+  // 🔒 פונקציה לבדוק אם הקובץ הוא תמונה תקינה
+  const validateImageHeader = (bytes: Uint8Array): boolean => {
+    // JPEG: FF D8 FF
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+      return true;
+    }
+
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const compressImage = (file: File, maxWidth: number = 400): Promise<File> => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+
+      img.onload = () => {
+        const ratio = Math.min(maxWidth / img.width, maxWidth / img.height);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const compressedFile = new File([blob], file.name, {
+              type: file.type,
+              lastModified: Date.now()
+            });
+            resolve(compressedFile);
+          }
+        }, file.type, 0.8); // איכות 80%
+      };
+
+      img.src = URL.createObjectURL(file);
+    });
   };
 
   const uploadImage = async (): Promise<string | null> => {
@@ -254,7 +350,7 @@ export default function ProfilePage() {
                 <p className="text-sm text-gray-500 font-medium">עדכן את הפרטים שלך</p>
               </div>
             </div>
-            
+
             <button
               onClick={handleLogout}
               className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200"
@@ -286,23 +382,27 @@ export default function ProfilePage() {
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-gray-900">הפרטים האישיים שלי</CardTitle>
           </CardHeader>
-          
+
           <CardContent className="space-y-8">
             {/* תמונת פרופיל */}
             <div className="text-center">
               <div className="relative inline-block">
                 {previewUrl ? (
-                  <img 
-                    src={previewUrl} 
+                  <img
+                    src={previewUrl}
                     alt="תמונת פרופיל"
                     className="w-32 h-32 rounded-full object-cover border-4 border-blue-200 shadow-lg"
+                    onError={(e) => {
+                      // אם התמונה נכשלת, הצג את האות הראשונה
+                      e.currentTarget.style.display = 'none';
+                    }}
                   />
                 ) : (
                   <div className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white text-4xl font-bold border-4 border-blue-200 shadow-lg">
-                    {user.full_name.charAt(0)}
+                    {user?.full_name?.charAt(0)?.toUpperCase() || 'U'}
                   </div>
                 )}
-                
+
                 {/* כפתור הסרת תמונה */}
                 {previewUrl && (
                   <button
@@ -313,7 +413,7 @@ export default function ProfilePage() {
                   </button>
                 )}
               </div>
-              
+
               <div className="mt-4">
                 <Label htmlFor="profile-pic" className="cursor-pointer">
                   <div className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-medium transition-colors">
@@ -328,13 +428,13 @@ export default function ProfilePage() {
                 <input
                   id="profile-pic"
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/jpg,image/png"
                   onChange={handleFileSelect}
                   className="hidden"
                   disabled={uploading}
                 />
                 <p className="text-xs text-gray-500 mt-2">
-                  JPG, PNG עד 5MB
+                  JPG, PNG עד 2MB
                 </p>
               </div>
             </div>
@@ -419,7 +519,7 @@ export default function ProfilePage() {
           <CardContent className="p-6">
             <h3 className="font-bold text-blue-900 mb-2">💡 טיפ</h3>
             <p className="text-blue-800 text-sm leading-relaxed">
-              תמונת פרופיל מקצועית עוזרת ללקוחות להכיר אותך ומגבירה את האמון. 
+              תמונת פרופיל מקצועית עוזרת ללקוחות להכיר אותך ומגבירה את האמון.
               השתמש בתמונה ברורה ואיכותית שמראה את הפנים שלך.
             </p>
           </CardContent>

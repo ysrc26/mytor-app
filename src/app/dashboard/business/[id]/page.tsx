@@ -387,10 +387,24 @@ export default function BusinessDashboard() {
             const response = await fetch('/api/users/me');
             if (response.ok) {
                 const data = await response.json();
-                setUser(data.user);
+
+                // הוספת הלוגיקה לתמונת גוגל
+                const { data: { user: authUser } } = await supabase.auth.getUser();
+                let profilePicUrl = data.user.profile_pic || '';
+
+                // אם אין תמונה מותאמת אישית, נסה לקבל מGoogle
+                if (!profilePicUrl && authUser?.user_metadata?.avatar_url) {
+                    profilePicUrl = authUser.user_metadata.avatar_url;
+                }
+
+                setUser({
+                    ...data.user,
+                    profile_pic: profilePicUrl
+                });
             }
         } catch (error) {
-            console.error('Error fetching user:', error);
+            console.error('Error fetching user data:', error);
+            setError('שגיאה בטעינת נתוני המשתמש');
         }
     };
 
@@ -1405,7 +1419,7 @@ export default function BusinessDashboard() {
                                     />
                                 ) : (
                                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white text-sm font-bold">
-                                        {user?.full_name.charAt(0)}
+                                        {user?.full_name?.charAt(0)}
                                     </div>
                                 )}
                             </button>

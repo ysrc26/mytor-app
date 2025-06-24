@@ -35,6 +35,7 @@ export interface CalendarEvent {
   status: 'pending' | 'confirmed' | 'declined' | 'cancelled';
   service_name?: string; // שם השירות
   note?: string; // הערות
+  is_all_day?: boolean; // האם כל היום
 }
 
 export interface CalendarAvailability {

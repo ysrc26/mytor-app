@@ -134,11 +134,13 @@ export const Calendar: React.FC<CalendarProps> = ({
     });
   };
 
+  // פונקציות עזר לטיפול בשעות
   const timeToMinutes = (time: string): number => {
     const [hours, minutes] = time.split(':').map(Number);
     return hours * 60 + minutes;
   };
 
+  // פונקציה להוספת דקות לשעה
   const addMinutesToTime = (time: string, minutes: number): string => {
     const [hours, mins] = time.split(':').map(Number);
     const totalMinutes = hours * 60 + mins + minutes;
@@ -147,8 +149,13 @@ export const Calendar: React.FC<CalendarProps> = ({
     return `${newHours.toString().padStart(2, '0')}:${newMins.toString().padStart(2, '0')}`;
   };
 
+  // פונקציה לקבלת אירועים לפי תאריך ושעה
   const getEventsForDateTime = (events: CalendarEvent[], date: Date, slotHour: number, slotMinute: number): CalendarEvent[] => {
     return events.filter(event => {
+
+      // בדיקה אם האירוע הוא כל היום
+      if (event.is_all_day) return false;
+
       const eventStartDate = event.date;
       const eventStartTime = event.time;
       const eventDurationMinutes = event.duration_minutes;
@@ -163,6 +170,7 @@ export const Calendar: React.FC<CalendarProps> = ({
     });
   };
 
+  // פונקציה לבדוק אם יש זמינות בתאריך ושעה מסוימים
   const hasAvailability = (availability: CalendarAvailability[], date: Date, timeSlot: string): boolean => {
     const dayOfWeek = date.getDay();
     const dayAvailability = availability.find(avail =>
@@ -178,6 +186,7 @@ export const Calendar: React.FC<CalendarProps> = ({
     return slotMinutes >= startMinutes && slotMinutes < endMinutes;
   };
 
+  // פונקציה ליצירת תאריכים לתצוגה
   const generateDisplayDates = (currentDate: Date, view: string, availability: CalendarAvailability[]): Date[] => {
     const dates: Date[] = [];
     const startDate = new Date(currentDate);
@@ -223,28 +232,33 @@ export const Calendar: React.FC<CalendarProps> = ({
     return dates;
   };
 
+  // פונקציות עזר לתאריך
   const isToday = (date: Date): boolean => {
     const today = new Date();
     return date.toDateString() === today.toDateString();
   };
 
+  // פונקציה לבדוק אם השעה היא בעבר
   const isPastTime = (date: Date, time: string): boolean => {
     const now = new Date();
     const dateTime = new Date(`${date.toISOString().split('T')[0]} ${time}`);
     return dateTime < now;
   };
 
+  // פונקציה לחישוב גובה אירוע לפי משך
   const calculateEventHeight = (durationMinutes: number): number => {
     const minHeight = 40;
     const calculatedHeight = (durationMinutes / 60) * 60;
     return Math.max(minHeight, calculatedHeight);
   };
 
+  // פונקציה לקבלת שם יום קצר
   const getShortDayName = (date: Date): string => {
     const dayNames = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
     return dayNames[date.getDay()];
   };
 
+  // פונקציה לקבלת צבע סטטוס אירוע
   const getEventStatusColor = (status: string): string => {
     switch (status) {
       case 'confirmed':
@@ -260,6 +274,7 @@ export const Calendar: React.FC<CalendarProps> = ({
     }
   };
 
+  // פונקציה לקבלת מיקום השעה הנוכחית
   const getCurrentTimePosition = (timeSlot: string): { showLine: boolean; percentage: number } => {
     const now = currentTime;
     const hours = now.getHours();
@@ -305,6 +320,7 @@ export const Calendar: React.FC<CalendarProps> = ({
     onDateChange(newDate);
   };
 
+  // פונקציה לקבלת טקסט כותרת של התאריך הנוכחי
   const getHeaderText = (): string => {
     switch (view) {
       case 'day': {
@@ -396,6 +412,22 @@ export const Calendar: React.FC<CalendarProps> = ({
         });
       }
     }
+  };
+
+  // פונקציה לקבלת אירועים שנמשכים כל היום
+  const getAllDayEvents = (events: CalendarEvent[], date: Date): CalendarEvent[] => {
+    const dateStr = date.toISOString().split('T')[0];
+    return events.filter(event =>
+      event.date === dateStr && event.is_all_day === true
+    );
+  };
+
+  // פונקציה לבדוק אם יש אירועי יום שלם בתאריכים מסוימים
+  const hasAnyAllDayEvents = (events: CalendarEvent[], dates: Date[]): boolean => {
+    return dates.some(date => {
+      const dateStr = date.toISOString().split('T')[0];
+      return events.some(event => event.date === dateStr && event.is_all_day === true);
+    });
   };
 
   return (
@@ -495,6 +527,49 @@ export const Calendar: React.FC<CalendarProps> = ({
               </div>
             ))}
 
+            {/* All-Day Events Row - רק אם יש אירועי יום שלם */}
+            {hasAnyAllDayEvents(getFilteredEvents(events), displayDates) && (
+              <>
+                {/* תווית ריקה לעמודת השעות */}
+                <div className="sticky top-[73px] bg-white border-b border-gray-200 z-20 min-h-[40px]">
+                  {/* ריק - בלי טקסט */}
+                </div>
+
+                {/* אירועי יום שלם לכל יום */}
+                {displayDates.map((date, dateIndex) => {
+                  const allDayEvents = getAllDayEvents(getFilteredEvents(events), date);
+
+                  return (
+                    <div
+                      key={`all-day-${dateIndex}`}
+                      className="sticky top-[73px] bg-white border-b border-gray-200 z-20 min-h-[40px] p-1"
+                    >
+                      {allDayEvents.map((event) => (
+                        <div
+                          key={`all-day-event-${event.id}`}
+                          className="text-xs p-1 mb-1 rounded cursor-pointer transition-all hover:opacity-80 bg-blue-100 text-blue-800 border border-blue-200"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEventClick(event);
+                          }}
+                          title={`${event.client_name} - ${event.service_name || 'אירוע יום שלם'}`}
+                        >
+                          <div className="truncate font-medium">
+                            {event.client_name}
+                          </div>
+                          {event.service_name && (
+                            <div className="truncate opacity-75">
+                              {event.service_name}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
             {/* Time Slots and Events */}
             {timeSlots.map((timeSlot, timeIndex) => {
               const [slotHour, slotMinute] = timeSlot.split(':').map(Number);
@@ -502,7 +577,10 @@ export const Calendar: React.FC<CalendarProps> = ({
               return (
                 <React.Fragment key={timeSlot}>
                   {/* Time Label */}
-                  <div className="p-2 text-xs text-gray-500 font-medium border-b border-gray-100 bg-gray-50">
+                  <div className={`sticky bg-gray-50 p-2 text-xs text-gray-500 font-medium border-b border-gray-100 z-10 ${hasAnyAllDayEvents(getFilteredEvents(events), displayDates)
+                      ? 'top-[113px]'
+                      : 'top-[73px]'
+                    }`}>
                     {timeSlot}
                   </div>
 
@@ -518,12 +596,12 @@ export const Calendar: React.FC<CalendarProps> = ({
                     return (
                       <div
                         key={`${date.toISOString()}-${timeSlot}`}
-                        className={`relative border-b border-gray-100 min-h-[50px] cursor-pointer transition-colors ${isPast
-                          ? 'bg-gray-50'
-                          : isAvailable
-                            ? 'hover:bg-blue-50'
-                            : 'bg-gray-25'
-                          }`}
+                        className={`relative border-b border-gray-100 min-h-[50px] transition-colors ${isPast
+                          ? 'bg-gray-100 cursor-not-allowed'
+                          : !isAvailable
+                            ? 'bg-gray-100 cursor-not-allowed'
+                            : 'bg-white cursor-pointer hover:bg-gray-50'
+                          } ${showCurrentTime ? 'z-10' : ''}`}
                         onClick={() => !isPast && isAvailable && onTimeSlotClick(date, timeSlot)}
                       >
                         {/* Current Time Line */}
@@ -605,13 +683,6 @@ export const Calendar: React.FC<CalendarProps> = ({
                         {slotEvents.length === 0 && !isPast && isAvailable && (
                           <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
                             <Plus className="w-4 h-4 text-gray-400" />
-                          </div>
-                        )}
-
-                        {/* Unavailable indicator */}
-                        {!isAvailable && !isPast && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="text-gray-300 text-xs">לא זמין</div>
                           </div>
                         )}
                       </div>

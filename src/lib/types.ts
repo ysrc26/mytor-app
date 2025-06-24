@@ -176,6 +176,14 @@ export interface User {
   created_at: string;
 }
 
+export interface UserPreferences {
+  id: string;
+  user_id: string;
+  default_calendar_view: CalendarView;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Business {
   id: string;
   user_id: string;

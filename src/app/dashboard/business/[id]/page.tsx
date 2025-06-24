@@ -18,7 +18,7 @@ import AvailabilityTable from '@/components/ui/AvailabilityTable';
 import {
     Business, Service,
     Appointment, Availability,
-    User, CalendarEvent,
+    User, UserPreferences, CalendarEvent,
     CalendarAvailability, CalendarView,
     mapToCalendarEvent
 } from '@/lib/types';
@@ -61,6 +61,7 @@ export default function BusinessDashboard() {
     const [business, setBusiness] = useState<Business | null>(null);
     const [services, setServices] = useState<Service[]>([]);
     const [user, setUser] = useState<User | null>(null);
+    const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [availability, setAvailability] = useState<Availability[]>([]);
     const [newAppointmentAlert, setNewAppointmentAlert] = useState<any>(null);
@@ -340,7 +341,8 @@ export default function BusinessDashboard() {
             fetchAppointments(),
             fetchAvailability(),
             fetchServices(),
-            fetchUser()
+            fetchUser(),
+            fetchUserPreferences()
         ]);
         setLoading(false);
     };
@@ -389,6 +391,25 @@ export default function BusinessDashboard() {
             }
         } catch (error) {
             console.error('Error fetching user:', error);
+        }
+    };
+
+    // פונקציה לטעינת העדפות משתמש
+    const fetchUserPreferences = async () => {
+        try {
+            const response = await fetch('/api/users/preferences');
+            if (response.ok) {
+                const preferences = await response.json();
+                setUserPreferences(preferences);
+
+                // הגדר את תצוגת ברירת המחדל רק אם זה הטעינה הראשונה
+                if (preferences.default_calendar_view && calendarView === 'work-days') {
+                    setCalendarView(preferences.default_calendar_view);
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching user preferences:', error);
+            // אם יש שגיאה, השאר את ברירת המחדל הקיימת
         }
     };
 
@@ -1604,10 +1625,10 @@ export default function BusinessDashboard() {
                                     <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
                                         {[
                                             { key: 'day', label: 'יום', icon: '📅' },
-                                            { key: 'three-days', label: '3 ימים', icon: '📊' },
+                                            { key: 'three-days', label: '3 ימים', icon: '🗓️' },
                                             { key: 'week', label: 'שבוע', icon: '🗓️' },
-                                            { key: 'work-days', label: 'ימי עבודה', icon: '💼', default: true }, // הוסף default flag
-                                            { key: 'month', label: 'חודש', icon: '📆' }
+                                            { key: 'work-days', label: 'ימי עבודה', icon: '💼' },
+                                            { key: 'month', label: 'חודש', icon: '🗓️' }
                                         ].map((view) => (
                                             <button
                                                 key={view.key}
@@ -1616,12 +1637,13 @@ export default function BusinessDashboard() {
                                                     ? 'bg-white text-blue-600 shadow-sm scale-105'
                                                     : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
                                                     }`}
-                                                title={`תצוגת ${view.label}${view.default ? ' (ברירת מחדל)' : ''}`}
+                                                title={`תצוגת ${view.label}${userPreferences?.default_calendar_view === view.key ? ' (ברירת מחדל)' : ''
+                                                    }`}
                                             >
                                                 <span className="text-xs">{view.icon}</span>
                                                 <span className="hidden sm:inline">{view.label}</span>
-                                                {view.default && (
-                                                    <span className="text-xs bg-blue-100 text-blue-600 px-1 rounded">ברירת מחדל</span>
+                                                {userPreferences?.default_calendar_view === view.key && (
+                                                    <span className="text-xs bg-blue-100 text-blue-600 px-1 rounded ml-1">ברירת מחדל</span>
                                                 )}
                                             </button>
                                         ))}
@@ -2178,6 +2200,28 @@ export default function BusinessDashboard() {
                             </div>
                             <ChevronLeft className="w-4 h-4 text-gray-400" />
                         </button>
+
+                        {/* העדפות משתמש */}
+                        {/* הגדרות מערכת */}
+                        <div className="mt-4 pt-4 border-t border-gray-200">
+                            <button
+                                onClick={() => {
+                                    router.push('/dashboard/settings');
+                                    closeSideNav();
+                                }}
+                                className="w-full text-right p-4 rounded-xl transition-all duration-200 group hover:bg-gray-50 border-2 border-transparent text-gray-700 hover:text-gray-900"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl flex items-center justify-center transition-colors bg-gray-100 text-gray-600 group-hover:bg-gray-200">
+                                        <Settings className="w-5 h-5" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h4 className="font-semibold">הגדרות מערכת</h4>
+                                        <p className="text-sm opacity-70">העדפות אישיות</p>
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
 
                         {/* דשבורד ראשי */}
                         <button

@@ -163,6 +163,35 @@ export default function BusinessDashboard() {
         return days;
     }, [currentMonth, businessAvailabilityCache]);
 
+    // 🎯 פונקציה חדשה ליצירת כל ימי החודש (בלי הגבלות זמינות)
+    const generateAllCalendarDays = useMemo(() => {
+        console.log('🗓️ Generating ALL calendar days for business owner:', currentMonth.toISOString().split('T')[0]);
+
+        const days = [];
+        const today = new Date();
+        const currentMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+
+        const startDate = new Date(currentMonthStart);
+        startDate.setDate(startDate.getDate() - startDate.getDay());
+
+        for (let i = 0; i < 42; i++) {
+            const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i);
+
+            const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
+            const isPast = date < today;
+
+            days.push({
+                date,
+                isCurrentMonth,
+                isPast,
+                hasAvailability: !isPast && isCurrentMonth, // כל יום עתידי זמין לבעל העסק!
+                isDisabled: isPast || !isCurrentMonth // רק עבר ויומים מחוץ לחודש מושבתים
+            });
+        }
+
+        return days;
+    }, [currentMonth]);
+
     useEffect(() => {
         if (businessId) {
             loadBusinessData();
@@ -989,10 +1018,29 @@ export default function BusinessDashboard() {
 
     // פונקציה לשמירת עריכת תור
     const saveEditedAppointment = async () => {
-        if (!editingAppointment) return;
+        if (!editingAppointment?.service_id) {
+            showToast('יש לבחור שירות', 'error');
+            return;
+        }
+
+        if (!editingAppointment.date || !editingAppointment.time) {
+            showToast('יש למלא תאריך ושעה', 'error');
+            return;
+        }
+
+        // ✅ בדיקה סופית עם הפונקציה המותאמת לבעל העסק
+        const conflictCheck = await checkAppointmentConflict(
+            editingAppointment.date,
+            editingAppointment.time,
+            editingAppointment.id
+        );
+
+        if (conflictCheck.hasConflict) {
+            showToast(conflictCheck.conflictingAppointment?.error || 'יש חפיפה עם תור קיים', 'error');
+            return;
+        }
 
         try {
-            // ✅ Use the refactored API endpoint
             const response = await fetch(`/api/appointments/${editingAppointment.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -1015,17 +1063,16 @@ export default function BusinessDashboard() {
                 apt.id === editingAppointment.id ? { ...apt, ...result.appointment } : apt
             ));
 
-            // 🍞 סגור מודאל מיד והצג Toast
+            // סגירה והצלחה
             setEditModalOpen(false);
             setEditingAppointment(null);
             setSelectedDate(null);
-            setAvailableSlots([]);
-
-            // הצג Toast הצלחה
             showToast('התור עודכן בהצלחה!', 'success');
 
+            // רענון רשימת תורים
+            fetchAppointments();
+
         } catch (err) {
-            // הצג Toast שגיאה (המודאל נשאר פתוח)
             showToast(err instanceof Error ? err.message : 'שגיאה בעדכון התור', 'error');
         }
     };
@@ -1580,6 +1627,124 @@ export default function BusinessDashboard() {
         // תן margin של שעה לפני התור (אופציונלי)
         const marginTime = new Date(appointmentDateTime.getTime() - (60 * 60 * 1000)); // 1 שעה לפני
         return now < marginTime;
+    };
+
+    // 🎯 פונקציה לבדיקת חפיפות תורים (רק לבעל העסק)
+    const checkAppointmentConflict = async (date: string, time: string, excludeAppointmentId?: string) => {
+        // בדיקה שיש service_id
+        if (!editingAppointment?.service_id) {
+            console.warn('Missing service_id for conflict check');
+            return { hasConflict: false };
+        }
+
+        try {
+            console.log('🔍 Checking conflicts for business owner:', {
+                businessId,
+                serviceId: editingAppointment.service_id,
+                date,
+                time,
+                excludeAppointmentId
+            });
+
+            // 🎯 בדיקות בסיסיות לבעל העסק (בלי הגבלות זמינות)
+            const appointmentDate = new Date(date);
+
+            // 1. בדיקה שהתאריך לא בעבר
+            if (timeUtils.isPastDate(appointmentDate)) {
+                return {
+                    hasConflict: true,
+                    conflictingAppointment: { error: 'לא ניתן לקבוע תור בעבר' }
+                };
+            }
+
+            // 2. בדיקה שהזמן לא בעבר (אם זה היום)
+            if (timeUtils.isPastTime(time, appointmentDate)) {
+                return {
+                    hasConflict: true,
+                    conflictingAppointment: { error: 'לא ניתן לקבוע תור בזמן שעבר' }
+                };
+            }
+
+            // 3. קבל פרטי השירות למשך השירות
+            const response = await fetch(`/api/businesses/${businessId}/services`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch services');
+            }
+
+            const services = await response.json();
+            const service = services.find((s: any) => s.id === editingAppointment.service_id);
+
+            if (!service) {
+                return {
+                    hasConflict: true,
+                    conflictingAppointment: { error: 'שירות לא נמצא' }
+                };
+            }
+
+            // 4. בדיקת חפיפות עם תורים קיימים
+            const appointmentsResponse = await fetch(`/api/businesses/${businessId}/appointments?date=${date}`);
+            if (!appointmentsResponse.ok) {
+                throw new Error('Failed to fetch appointments');
+            }
+
+            const existingAppointments = await appointmentsResponse.json();
+
+            // סנן תורים פעילים ולא כולל את התור הנוכחי
+            const activeAppointments = existingAppointments.filter((apt: any) =>
+                ['pending', 'confirmed'].includes(apt.status) &&
+                apt.id !== excludeAppointmentId
+            );
+
+            console.log('📋 Active appointments for conflict check:', activeAppointments);
+
+            // בדיקת חפיפות עם כל תור קיים
+            for (const existingApt of activeAppointments) {
+                // קבל משך השירות של התור הקיים
+                let existingDuration = 60; // ברירת מחדל
+
+                if (existingApt.service_id) {
+                    const existingService = services.find((s: any) => s.id === existingApt.service_id);
+                    if (existingService?.duration_minutes) {
+                        existingDuration = existingService.duration_minutes;
+                    }
+                }
+
+                // בדיקת חפיפה עם timeUtils.hasTimeConflict
+                const hasConflict = timeUtils.hasTimeConflict(
+                    time,                           // התור החדש - התחלה
+                    service.duration_minutes,       // התור החדש - משך
+                    existingApt.time,              // התור הקיים - התחלה  
+                    existingDuration               // התור הקיים - משך
+                );
+
+                if (hasConflict) {
+                    console.log('⚠️ Conflict found with existing appointment:', {
+                        existingTime: existingApt.time,
+                        existingDuration,
+                        newTime: time,
+                        newDuration: service.duration_minutes
+                    });
+
+                    return {
+                        hasConflict: true,
+                        conflictingAppointment: {
+                            error: `יש חפיפה עם תור קיים של ${existingApt.client_name} ב-${existingApt.time}`,
+                            existingAppointment: existingApt
+                        }
+                    };
+                }
+            }
+
+            console.log('✅ No conflicts found for business owner');
+            return { hasConflict: false };
+
+        } catch (error) {
+            console.error('Error checking conflicts:', error);
+            return {
+                hasConflict: true,
+                conflictingAppointment: { error: 'שגיאה בבדיקת חפיפות' }
+            };
+        }
     };
 
     return (
@@ -2912,14 +3077,14 @@ export default function BusinessDashboard() {
                                     </div>
 
                                     <div className="grid grid-cols-7 gap-1">
-                                        {generateAvailableDays.map((day: any, index: number) => (
+                                        {generateAllCalendarDays.map((day: any, index: number) => (
                                             <button
                                                 key={index}
                                                 onClick={() => {
-                                                    if (!day.isDisabled && !isLoadingSlots) { // 🛡️ מנע לחיצה בזמן טעינה
-                                                        console.log('📅 Date clicked:', timeUtils.formatDateForAPI(day.date));
+                                                    if (!day.isDisabled && !isLoadingSlots) {
+                                                        console.log('📅 Date clicked (business owner):', timeUtils.formatDateForAPI(day.date));
 
-                                                        // 🎯 בדיקה אם זה אותו תאריך
+                                                        // בדיקה אם זה אותו תאריך
                                                         if (selectedDate &&
                                                             timeUtils.formatDateForAPI(selectedDate) === timeUtils.formatDateForAPI(day.date)) {
                                                             console.log('🔄 Same date clicked, ignoring');
@@ -2929,21 +3094,17 @@ export default function BusinessDashboard() {
                                                         setSelectedDate(day.date);
                                                     }
                                                 }}
-                                                disabled={day.isDisabled || isLoadingSlots} // 🛡️ השבת בזמן טעינה
-                                                className={`p-2 text-sm rounded-lg transition-all ${isLoadingSlots ? 'opacity-50 cursor-not-allowed' : // 🎨 אינדיקטור טעינה
-                                                    selectedDate && timeUtils.formatDateForAPI(selectedDate) === timeUtils.formatDateForAPI(day.date)
-                                                        ? 'bg-blue-600 text-white'
-                                                        : day.isDisabled
-                                                            ? 'text-gray-300 cursor-not-allowed'
-                                                            : day.hasAvailability
-                                                                ? 'hover:bg-blue-100 text-gray-900'
-                                                                : 'text-gray-400'
+                                                disabled={day.isDisabled}
+                                                className={`p-2 text-sm rounded-lg transition-all ${selectedDate && timeUtils.formatDateForAPI(selectedDate) === timeUtils.formatDateForAPI(day.date)
+                                                    ? 'bg-blue-600 text-white'
+                                                    : day.isDisabled
+                                                        ? 'text-gray-300 cursor-not-allowed'
+                                                        : day.hasAvailability
+                                                            ? 'hover:bg-blue-100 text-gray-900 border border-blue-200' // הדגש שכל יום זמין
+                                                            : 'text-gray-400'
                                                     }`}
                                             >
-                                                {isLoadingSlots && selectedDate && timeUtils.formatDateForAPI(selectedDate) === timeUtils.formatDateForAPI(day.date)
-                                                    ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>
-                                                    : day.date.getDate()
-                                                }
+                                                {day.date.getDate()}
                                             </button>
                                         ))}
                                     </div>
@@ -2953,49 +3114,74 @@ export default function BusinessDashboard() {
                                 {selectedDate && (
                                     <div>
                                         <h4 className="font-semibold text-gray-900 mb-3">
-                                            שעות פנויות ב{selectedDate.toLocaleDateString('he-IL')}
+                                            קבע שעת תור ל-{selectedDate.toLocaleDateString('he-IL')}
                                         </h4>
 
-                                        {/* בדיקת מצב טעינה */}
-                                        {availableSlots === null || (availableSlots.length === 0 && editingAppointment?.service_id) ? (
-                                            <div className="text-center py-6">
-                                                <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mb-2"></div>
-                                                <p className="text-gray-500 text-sm">טוען שעות זמינות...</p>
+                                        {/* הודעה מסבירה */}
+                                        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                            <div className="flex items-start gap-2">
+                                                <Crown className="w-5 h-5 text-blue-600 mt-0.5" />
+                                                <div className="text-blue-800 text-sm">
+                                                    <p className="font-medium">גמישות מלאה לבעל העסק</p>
+                                                    <p>תוכל לקבוע תור בכל שעה שתרצה, גם מחוץ לשעות העבודה הרגילות.</p>
+                                                </div>
                                             </div>
-                                        ) : availableSlots.length > 0 ? (
-                                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-                                                {availableSlots.map((time) => (
-                                                    <button
-                                                        key={time}
-                                                        onClick={() => {
-                                                            console.log('Time selected in edit modal:', time);
-                                                            setEditingAppointment({
-                                                                ...editingAppointment,
-                                                                date: timeUtils.formatDateForAPI(selectedDate),
-                                                                time: time
-                                                            });
-                                                        }}
-                                                        className={`p-2 border rounded-lg transition-all text-center text-sm font-medium ${editingAppointment.time === time &&
-                                                            // ✅ השתמש ב-timeUtils.formatDateForAPI במקום toISOString
-                                                            editingAppointment.date === timeUtils.formatDateForAPI(selectedDate)
-                                                            ? 'bg-blue-600 border-blue-600 text-white'
-                                                            : 'bg-white border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                                                            }`}
-                                                    >
-                                                        {time}
-                                                    </button>
-                                                ))}
+                                        </div>
+
+                                        {/* בחירת שעה חופשית */}
+                                        <div className="space-y-4">
+                                            <div>
+                                                <Label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    שעת התור *
+                                                </Label>
+                                                <input
+                                                    type="time"
+                                                    value={editingAppointment?.time?.slice(0, 5) || ''}
+                                                    onChange={async (e) => {
+                                                        const newTime = e.target.value;
+                                                        if (!newTime || !selectedDate || !editingAppointment?.service_id) return;
+
+                                                        const dateStr = timeUtils.formatDateForAPI(selectedDate);
+
+                                                        // ✅ בדיקת חפיפות עם משך שירות מלא
+                                                        const conflictCheck = await checkAppointmentConflict(
+                                                            dateStr,
+                                                            newTime,
+                                                            editingAppointment?.id
+                                                        );
+
+                                                        if (conflictCheck.hasConflict) {
+                                                            showToast(
+                                                                conflictCheck.conflictingAppointment?.error ||
+                                                                `התור מתנגש עם תור קיים`,
+                                                                'error'
+                                                            );
+                                                            return;
+                                                        }
+
+                                                        // עדכן את הזמן
+                                                        setEditingAppointment({
+                                                            ...editingAppointment,
+                                                            date: dateStr,
+                                                            time: newTime
+                                                        });
+                                                    }}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                />
                                             </div>
-                                        ) : !editingAppointment?.service_id ? (
-                                            <div className="text-center py-6 text-gray-500">
-                                                <p>בחר שירות כדי לראות שעות זמינות</p>
-                                            </div>
-                                        ) : (
-                                            <div className="text-center py-6 text-gray-500">
-                                                <p>אין שעות פנויות בתאריך זה</p>
-                                                <p className="text-sm mt-1">נסה לבחור תאריך אחר</p>
-                                            </div>
-                                        )}
+
+                                            {/* תצוגת תור נוכחי */}
+                                            {editingAppointment?.time && selectedDate && (
+                                                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                                                    <div className="flex items-center gap-2">
+                                                        <CheckCircle className="w-5 h-5 text-green-600" />
+                                                        <span className="text-green-800 font-medium">
+                                                            התור יועבר ל-{selectedDate.toLocaleDateString('he-IL')} בשעה {editingAppointment.time.slice(0, 5)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
 

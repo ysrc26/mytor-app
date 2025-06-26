@@ -1,7 +1,7 @@
 // src/app/dashboard/business/[id]/page.tsx
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import { useRouter, useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -74,7 +74,6 @@ export default function BusinessDashboard() {
     const [modalContent, setModalContent] = useState<'services' | 'profile' | 'availability' | null>(null);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    // const [calendarView, setCalendarView] = useState<'day' | 'three-days' | 'week' | 'work-days' | 'month'>('work-days');
     const [calendarView, setCalendarView] = useState<CalendarView>('work-days');
     const [calendarDate, setCalendarDate] = useState(new Date());
     const [calendarCurrentDate, setCalendarCurrentDate] = useState(new Date());
@@ -92,6 +91,10 @@ export default function BusinessDashboard() {
     const [availableSlots, setAvailableSlots] = useState<string[]>([]);
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [businessAvailability, setBusinessAvailability] = useState<any[]>([]);
+    const [businessAvailabilityCache, setBusinessAvailabilityCache] = useState<any[]>([]);
+    const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+    const [slotsCache, setSlotsCache] = useState<Map<string, string[]>>(new Map());
+    const [lastSelectedDate, setLastSelectedDate] = useState<Date | null>(null);
     const [loadingAvailability, setLoadingAvailability] = useState(false);
     const [editedBusiness, setEditedBusiness] = useState({
         name: '',
@@ -123,6 +126,42 @@ export default function BusinessDashboard() {
         end_time: '17:00'
     });
     const subscriptionRef = useRef<any>(null);
+
+    // פונקציה ליצירת תאריכים זמינים
+    const generateAvailableDays = useMemo(() => {
+        console.log('🗓️ Generating calendar days for:', currentMonth.toISOString().split('T')[0]);
+
+        const days = [];
+        const today = new Date();
+        const currentMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+
+        const startDate = new Date(currentMonthStart);
+        startDate.setDate(startDate.getDate() - startDate.getDay());
+
+        console.log('🗓️ Generate calendar - startDate:', startDate.toISOString());
+
+        for (let i = 0; i < 42; i++) {
+            const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i);
+
+            const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
+            const isPast = date < today;
+            const dayOfWeek = date.getDay();
+
+            const hasAvailability = businessAvailability.some(slot =>
+                slot.day_of_week === dayOfWeek && slot.is_active
+            );
+
+            days.push({
+                date,
+                isCurrentMonth,
+                isPast,
+                hasAvailability: hasAvailability && !isPast && isCurrentMonth,
+                isDisabled: isPast || !hasAvailability || !isCurrentMonth
+            });
+        }
+
+        return days;
+    }, [currentMonth, businessAvailabilityCache]);
 
     useEffect(() => {
         if (businessId) {
@@ -297,58 +336,73 @@ export default function BusinessDashboard() {
 
     // הוסף useEffect לטעינת זמינות כשנפתח המודל:
     useEffect(() => {
-        console.log('Edit modal effect triggered:', {
+        console.log('🔄 Edit modal useEffect triggered:', {
             editModalOpen,
             editingAppointment: editingAppointment?.id,
-            service_id: editingAppointment?.service_id
+            service_id: editingAppointment?.service_id,
+            isLoadingSlots
         });
 
-        if (editModalOpen && editingAppointment) {
+        if (editModalOpen && editingAppointment && !isLoadingSlots) {
             const initializeEditModal = async () => {
                 try {
+                    // טען זמינות רק אם אין בcache
                     await loadBusinessAvailability();
 
-                    // ✅ צור תאריך מהמחרוזת בצורה נכונה
+                    // אתחל תאריך נוכחי
                     const [year, month, day] = editingAppointment.date.split('-').map(Number);
-                    const currentDate = new Date(year, month - 1, day); // month - 1!
+                    const currentDate = new Date(year, month - 1, day);
                     setSelectedDate(currentDate);
                     setCurrentMonth(currentDate);
 
+                    // טען שעות זמינות רק אם יש service_id
                     if (editingAppointment.service_id) {
-                        console.log('Loading available slots for date:', timeUtils.formatDateForAPI(currentDate));
+                        console.log('🎯 Loading available slots for:', timeUtils.formatDateForAPI(currentDate));
                         const slots = await calculateAvailableSlots(currentDate);
-                        console.log('Loaded slots:', slots);
                         setAvailableSlots(slots);
                     } else {
-                        console.warn('No service_id found for appointment:', editingAppointment);
+                        console.warn('⚠️ No service_id found');
                         setAvailableSlots([]);
                     }
                 } catch (error) {
-                    console.error('Error initializing edit modal:', error);
+                    console.error('💥 Error initializing edit modal:', error);
                     setAvailableSlots([]);
                 }
             };
 
             initializeEditModal();
-        } else {
+        } else if (!editModalOpen) {
+            // נקה state כשסוגרים את המודאל
             setSelectedDate(null);
             setAvailableSlots([]);
+            setLastSelectedDate(null);
+            setIsLoadingSlots(false);
         }
     }, [editModalOpen, editingAppointment?.id]);
 
+    // 🎯 useEffect נפרד לשינוי תאריך
     useEffect(() => {
-        if (selectedDate && editingAppointment?.service_id && editModalOpen) {
-            console.log('Date changed in edit modal, reloading slots for:', timeUtils.formatDateForAPI(selectedDate));
+        if (selectedDate &&
+            editingAppointment?.service_id &&
+            editModalOpen &&
+            !isLoadingSlots) {
 
-            calculateAvailableSlots(selectedDate)
-                .then(slots => {
-                    console.log('Reloaded slots for new date:', slots);
-                    setAvailableSlots(slots);
-                })
-                .catch(error => {
-                    console.error('Error reloading slots:', error);
-                    setAvailableSlots([]);
-                });
+            console.log('📅 Date changed in edit modal:', timeUtils.formatDateForAPI(selectedDate));
+
+            // 🛡️ debounce להימנעות מקריאות מהירות
+            const timeoutId = setTimeout(() => {
+                calculateAvailableSlots(selectedDate)
+                    .then(slots => {
+                        console.log('✅ Loaded slots for new date:', slots.length);
+                        setAvailableSlots(slots);
+                    })
+                    .catch(error => {
+                        console.error('💥 Error reloading slots:', error);
+                        setAvailableSlots([]);
+                    });
+            }, 150); // 150ms debounce
+
+            return () => clearTimeout(timeoutId);
         }
     }, [selectedDate, editingAppointment?.service_id, editModalOpen]);
 
@@ -434,6 +488,12 @@ export default function BusinessDashboard() {
 
     const openEditModal = (appointment: Appointment) => {
         console.log('Opening edit modal for appointment:', appointment);
+
+        // ✅ בדיקה אם התור עבר
+        if (isAppointmentInPast(appointment)) {
+            showToast('לא ניתן לערוך תור שכבר עבר', 'error');
+            return;
+        }
 
         // וודא שיש service_id
         if (!appointment.service_id) {
@@ -971,123 +1031,26 @@ export default function BusinessDashboard() {
     };
     // פונקציה לטעינת זמינות העסק
     const loadBusinessAvailability = async () => {
+        // אם יש cache - החזר אותו
+        if (businessAvailabilityCache.length > 0) {
+            console.log('📦 Using cached business availability');
+            return businessAvailabilityCache;
+        }
+
         try {
             setLoadingAvailability(true);
+            console.log('🌐 Fetching business availability from server');
             const response = await fetch(`/api/businesses/${businessId}/availability`);
             if (response.ok) {
                 const data = await response.json();
                 setBusinessAvailability(data);
+                setBusinessAvailabilityCache(data); // 💾 שמור בcache
+                return data;
             }
         } catch (error) {
             console.error('Error loading availability:', error);
         } finally {
             setLoadingAvailability(false);
-        }
-    };
-
-    // פונקציה ליצירת תאריכים זמינים
-    const generateAvailableDays = () => {
-        const days = [];
-        const today = new Date();
-        const currentMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-
-        const startDate = new Date(currentMonthStart);
-        startDate.setDate(startDate.getDate() - startDate.getDay());
-
-        console.log('🗓️ Generate calendar - startDate:', startDate.toISOString());
-
-        for (let i = 0; i < 42; i++) {
-            const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i);
-
-            // 🐛 DEBUG: הוסף לוג לכמה ימים
-            if (date.getDate() === 13 || date.getDate() === 14) {
-                console.log(`📅 Day ${date.getDate()}: `, {
-                    originalDate: date,
-                    isoString: date.toISOString(),
-                    formatDateForAPI: timeUtils.formatDateForAPI(date),
-                    getDay: date.getDay(),
-                    dayName: ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'][date.getDay()]
-                });
-            }
-
-            if (date.getDate() === 7) {
-                console.log('=== GENERATE DAY 7 DEBUG ===');
-                console.log('Generated date for day 7:', date);
-                console.log('toString():', date.toString());
-                console.log('toISOString():', date.toISOString());
-                console.log('getDate():', date.getDate());
-                console.log('getMonth():', date.getMonth());
-                console.log('getFullYear():', date.getFullYear());
-                console.log('timeUtils format:', timeUtils.formatDateForAPI(date));
-                console.log('===========================');
-            }
-
-            const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
-            const isPast = date < today;
-            const dayOfWeek = date.getDay();
-
-            const hasAvailability = businessAvailability.some(slot =>
-                slot.day_of_week === dayOfWeek && slot.is_active
-            );
-
-            days.push({
-                date,
-                isCurrentMonth,
-                isPast,
-                hasAvailability: hasAvailability && !isPast && isCurrentMonth,
-                isDisabled: isPast || !hasAvailability || !isCurrentMonth
-            });
-        }
-
-        return days;
-    };
-
-    // פונקציה לחישוב שעות פנויות
-    const calculateAvailableSlots = async (date: Date): Promise<string[]> => {
-
-        console.log('🔄 calculateAvailableSlots called with:', {
-            dateParam: date,
-            dateISOString: date.toISOString(),
-            timeUtilsFormat: timeUtils.formatDateForAPI(date),
-            service_id: editingAppointment?.service_id
-        });
-
-        if (!date || !editingAppointment?.service_id) {
-            console.log('❌ Missing date or service_id');
-            return [];
-        }
-
-        try {
-            // ✅ השתמש ב-timeUtils.formatDateForAPI במקום toISOString
-            const dateStr = timeUtils.formatDateForAPI(date);
-            const url = `/api/public/${business.slug}/available-slots?date=${dateStr}&service_id=${editingAppointment.service_id}`;
-
-            console.log('🌐 Sending request to:', url);
-            console.log('📊 Date conversion check:', {
-                originalDate: date,
-                formattedDate: dateStr,
-                reconstructedDate: new Date(dateStr + 'T12:00:00'),
-                daysDifference: Math.round((new Date(dateStr + 'T12:00:00').getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-            });
-
-            const response = await fetch(url);
-
-            if (!response.ok) {
-                console.error('Failed to fetch available slots:', {
-                    status: response.status,
-                    statusText: response.statusText
-                });
-                return [];
-            }
-
-            const data = await response.json();
-            console.log('Available slots response:', data);
-
-            return data.available_slots || [];
-
-        } catch (error) {
-            console.error('Error calculating available slots:', error);
-            return [];
         }
     };
 
@@ -1540,6 +1503,83 @@ export default function BusinessDashboard() {
                 </div>
             </>
         );
+    };
+
+    // פונקציה לחישוב שעות פנויות
+    const calculateAvailableSlots = async (date: Date): Promise<string[]> => {
+        if (!date || !editingAppointment?.service_id) {
+            console.log('❌ Missing date or service_id');
+            return [];
+        }
+
+        // 🔄 בדיקה אם זה אותו תאריך כמו קודם
+        if (lastSelectedDate &&
+            lastSelectedDate.toDateString() === date.toDateString() &&
+            !isLoadingSlots) {
+            console.log('🔄 Same date selected, skipping API call');
+            return availableSlots;
+        }
+
+        // 📦 בדיקת cache
+        const dateStr = timeUtils.formatDateForAPI(date);
+        const cacheKey = `${dateStr}-${editingAppointment.service_id}`;
+
+        if (slotsCache.has(cacheKey)) {
+            console.log('📦 Using cached slots for:', dateStr);
+            setLastSelectedDate(date);
+            return slotsCache.get(cacheKey)!;
+        }
+
+        // 🛡️ מניעת כפילויות
+        if (isLoadingSlots) {
+            console.log('⏳ Already loading slots, skipping...');
+            return [];
+        }
+
+        try {
+            setIsLoadingSlots(true);
+            console.log('🌐 Fetching slots from server for:', dateStr);
+
+            const url = `/api/public/${business.slug}/available-slots?date=${dateStr}&service_id=${editingAppointment.service_id}`;
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                console.error('❌ Failed to fetch available slots');
+                return [];
+            }
+
+            const data = await response.json();
+            const slots = data.available_slots || [];
+
+            // 💾 שמור בcache
+            setSlotsCache(prev => new Map(prev.set(cacheKey, slots)));
+            setLastSelectedDate(date);
+
+            console.log('✅ Cached slots for future use:', dateStr);
+            return slots;
+
+        } catch (error) {
+            console.error('💥 Error calculating available slots:', error);
+            return [];
+        } finally {
+            setIsLoadingSlots(false);
+        }
+    };
+
+    // 🕐 פונקציה לבדיקה אם תור עבר
+    const isAppointmentInPast = (appointment: Appointment): boolean => {
+        const appointmentDateTime = new Date(`${appointment.date}T${appointment.time}`);
+        const now = new Date();
+        return appointmentDateTime < now;
+    };
+
+    // 🕐 פונקציה לבדיקה אם תור עבר עם margin (למשל 1 שעה)
+    const isAppointmentEditable = (appointment: Appointment): boolean => {
+        const appointmentDateTime = new Date(`${appointment.date}T${appointment.time}`);
+        const now = new Date();
+        // תן margin של שעה לפני התור (אופציונלי)
+        const marginTime = new Date(appointmentDateTime.getTime() - (60 * 60 * 1000)); // 1 שעה לפני
+        return now < marginTime;
     };
 
     return (
@@ -2008,11 +2048,12 @@ export default function BusinessDashboard() {
                                                 const now = new Date();
                                                 const isPast = appointmentDate < now;
                                                 const isToday = appointment.date === now.toISOString().split('T')[0];
+                                                const isEditable = !isPast;
 
                                                 return (
                                                     <div
                                                         key={appointment.id}
-                                                        className={`bg-white border rounded-2xl p-6 shadow-sm transition-all hover:shadow-md ${isPast ? 'opacity-75 border-gray-200' :
+                                                        className={`bg-white border rounded-2xl p-6 shadow-sm transition-all hover:shadow-md ${isPast ? 'opacity-60 border-gray-200 bg-gray-50' : // 🎨 עיצוב שונה לתורים שעברו
                                                             isToday ? 'border-orange-300 bg-orange-50' :
                                                                 'border-gray-200'
                                                             }`}
@@ -2020,12 +2061,15 @@ export default function BusinessDashboard() {
                                                         <div className="flex items-center justify-between">
                                                             <div className="flex items-center gap-4">
                                                                 {/* אינדיקטור סטטוס */}
-                                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${appointment.status === 'confirmed' ? 'bg-green-100' :
-                                                                    appointment.status === 'declined' ? 'bg-red-100' :
-                                                                        appointment.status === 'cancelled' ? 'bg-gray-100' :
-                                                                            'bg-yellow-100'
+                                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isPast ? 'bg-gray-100' : // 🎨 אפור לתורים שעברו
+                                                                    appointment.status === 'confirmed' ? 'bg-green-100' :
+                                                                        appointment.status === 'declined' ? 'bg-red-100' :
+                                                                            appointment.status === 'cancelled' ? 'bg-gray-100' :
+                                                                                'bg-yellow-100'
                                                                     }`}>
-                                                                    {appointment.status === 'confirmed' ? (
+                                                                    {isPast ? (
+                                                                        <Clock className="w-6 h-6 text-gray-500" />
+                                                                    ) : appointment.status === 'confirmed' ? (
                                                                         <CheckCircle className="w-6 h-6 text-green-600" />
                                                                     ) : appointment.status === 'declined' ? (
                                                                         <AlertCircle className="w-6 h-6 text-red-600" />
@@ -2039,14 +2083,14 @@ export default function BusinessDashboard() {
                                                                 <div>
                                                                     <div className="flex items-center gap-3 mb-1">
                                                                         <h5 className="font-semibold text-gray-900 text-lg">{appointment.client_name}</h5>
-                                                                        {isToday && (
+                                                                        {isToday && !isPast && (
                                                                             <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs font-medium">
                                                                                 היום
                                                                             </span>
                                                                         )}
                                                                         {isPast && (
                                                                             <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs font-medium">
-                                                                                עבר
+                                                                                ✓ הושלם
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -2082,12 +2126,13 @@ export default function BusinessDashboard() {
                                                                 <div className="flex gap-2">
                                                                     {/* כפתור עריכה */}
                                                                     <button
-                                                                        onClick={() => {
-                                                                            setEditingAppointment(appointment);
-                                                                            setEditModalOpen(true);
-                                                                        }}
-                                                                        className="text-gray-500 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors"
-                                                                        title="ערוך תור"
+                                                                        onClick={() => openEditModal(appointment)}
+                                                                        disabled={!isEditable}
+                                                                        className={`p-2 rounded-lg transition-colors ${isEditable
+                                                                            ? 'text-gray-500 hover:text-blue-600 hover:bg-blue-50'
+                                                                            : 'text-gray-300 cursor-not-allowed'
+                                                                            }`}
+                                                                        title={isEditable ? 'ערוך תור' : 'לא ניתן לערוך תור שעבר'}
                                                                     >
                                                                         <Edit className="w-4 h-4" />
                                                                     </button>
@@ -2095,11 +2140,17 @@ export default function BusinessDashboard() {
                                                                     {/* כפתור ביטול עם איקס */}
                                                                     <button
                                                                         onClick={() => {
-                                                                            setAppointmentToDelete(appointment.id);
-                                                                            setDeleteModalOpen(true);
+                                                                            if (isEditable) {
+                                                                                setAppointmentToDelete(appointment.id);
+                                                                                setDeleteModalOpen(true);
+                                                                            }
                                                                         }}
-                                                                        className="text-gray-500 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                                                                        title="בטל תור"
+                                                                        disabled={!isEditable}
+                                                                        className={`p-2 rounded-lg transition-colors ${isEditable
+                                                                            ? 'text-gray-500 hover:text-red-600 hover:bg-red-50'
+                                                                            : 'text-gray-300 cursor-not-allowed'
+                                                                            }`}
+                                                                        title={isEditable ? 'בטל תור' : 'לא ניתן לבטל תור שעבר'}
                                                                     >
                                                                         <X className="w-4 h-4" />
                                                                     </button>
@@ -2787,6 +2838,26 @@ export default function BusinessDashboard() {
                             </div>
 
                             <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+                                {/* 🚨 אזהרה על תור מתקרב */}
+                                {editingAppointment && (() => {
+                                    const appointmentDateTime = new Date(`${editingAppointment.date}T${editingAppointment.time}`);
+                                    const now = new Date();
+                                    const hoursUntilAppointment = (appointmentDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+                                    if (hoursUntilAppointment < 24 && hoursUntilAppointment > 0) {
+                                        return (
+                                            <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                                <div className="flex items-center gap-2">
+                                                    <AlertCircle className="w-5 h-5 text-yellow-600" />
+                                                    <span className="text-yellow-800 font-medium">
+                                                        ⚠️ התור מתקרב! (בעוד {Math.round(hoursUntilAppointment)} שעות)
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })()}
                                 {/* פרטי הלקוח */}
                                 <div className="bg-gray-50 p-4 rounded-xl">
                                     <h4 className="font-medium text-gray-900 mb-3">פרטי הלקוח</h4>
@@ -2841,36 +2912,38 @@ export default function BusinessDashboard() {
                                     </div>
 
                                     <div className="grid grid-cols-7 gap-1">
-                                        {generateAvailableDays().map((day, index) => (
+                                        {generateAvailableDays.map((day: any, index: number) => (
                                             <button
                                                 key={index}
                                                 onClick={() => {
-                                                    if (!day.isDisabled) {
-                                                        // 🚨 DEBUG CRITICAL - הוסף את זה!
-                                                        console.log('=== DATE CLICK DEBUG ===');
-                                                        console.log('Button shows day number:', day.date.getDate());
-                                                        console.log('Full date object:', day.date);
-                                                        console.log('Date toString():', day.date.toString());
-                                                        console.log('Date toISOString():', day.date.toISOString());
-                                                        console.log('timeUtils.formatDateForAPI:', timeUtils.formatDateForAPI(day.date));
-                                                        console.log('Current timezone offset:', day.date.getTimezoneOffset());
-                                                        console.log('========================');
+                                                    if (!day.isDisabled && !isLoadingSlots) { // 🛡️ מנע לחיצה בזמן טעינה
+                                                        console.log('📅 Date clicked:', timeUtils.formatDateForAPI(day.date));
+
+                                                        // 🎯 בדיקה אם זה אותו תאריך
+                                                        if (selectedDate &&
+                                                            timeUtils.formatDateForAPI(selectedDate) === timeUtils.formatDateForAPI(day.date)) {
+                                                            console.log('🔄 Same date clicked, ignoring');
+                                                            return;
+                                                        }
 
                                                         setSelectedDate(day.date);
-                                                        calculateAvailableSlots(day.date).then(setAvailableSlots);
                                                     }
                                                 }}
-                                                disabled={day.isDisabled}
-                                                className={`p-2 text-sm rounded-lg transition-all ${selectedDate && timeUtils.formatDateForAPI(selectedDate) === timeUtils.formatDateForAPI(day.date)
-                                                    ? 'bg-blue-600 text-white'
-                                                    : day.isDisabled
-                                                        ? 'text-gray-300 cursor-not-allowed'
-                                                        : day.hasAvailability
-                                                            ? 'hover:bg-blue-100 text-gray-900'
-                                                            : 'text-gray-400'
+                                                disabled={day.isDisabled || isLoadingSlots} // 🛡️ השבת בזמן טעינה
+                                                className={`p-2 text-sm rounded-lg transition-all ${isLoadingSlots ? 'opacity-50 cursor-not-allowed' : // 🎨 אינדיקטור טעינה
+                                                    selectedDate && timeUtils.formatDateForAPI(selectedDate) === timeUtils.formatDateForAPI(day.date)
+                                                        ? 'bg-blue-600 text-white'
+                                                        : day.isDisabled
+                                                            ? 'text-gray-300 cursor-not-allowed'
+                                                            : day.hasAvailability
+                                                                ? 'hover:bg-blue-100 text-gray-900'
+                                                                : 'text-gray-400'
                                                     }`}
                                             >
-                                                {day.date.getDate()}
+                                                {isLoadingSlots && selectedDate && timeUtils.formatDateForAPI(selectedDate) === timeUtils.formatDateForAPI(day.date)
+                                                    ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>
+                                                    : day.date.getDate()
+                                                }
                                             </button>
                                         ))}
                                     </div>
@@ -2952,11 +3025,15 @@ export default function BusinessDashboard() {
                                 <div className="flex gap-3 pt-4 border-t">
                                     <button
                                         onClick={() => {
-                                            console.log('Closing edit modal');
                                             setEditModalOpen(false);
                                             setEditingAppointment(null);
                                             setSelectedDate(null);
                                             setAvailableSlots([]);
+                                            setLastSelectedDate(null);
+                                            setIsLoadingSlots(false);
+                                            // 🗑️ נקה cache ישן (אופציונלי - לחיסכון בזיכרון)
+                                            setSlotsCache(new Map());
+                                            console.log('🧹 Edit modal closed and cache cleared');
                                         }}
                                         className="flex-1 px-4 py-2 text-gray-600 bg-gray-100 rounded-xl font-medium hover:bg-gray-200 transition-colors"
                                     >

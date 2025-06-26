@@ -268,7 +268,7 @@ export async function GET(
 
     console.log('✅ Final filtered slots:', filteredSlots);
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       date,
       service: {
         id: service.id,
@@ -278,6 +278,12 @@ export async function GET(
       available_slots: filteredSlots,
       total_slots: filteredSlots.length
     });
+
+    // 📦 Cache למשך 30 שניות (התאמה לצרכים)
+    response.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+    response.headers.set('ETag', `"${date}-${service.id}-${filteredSlots.length}"`);
+
+    return response;
 
   } catch (error) {
     console.error('💥 API Error:', error);

@@ -62,7 +62,7 @@ export const getEventsForDateTime = (
   date: Date, 
   timeSlot: string
 ): CalendarEvent[] => {
-  const dateStr = date.toISOString().split('T')[0];
+  const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   
   return events.filter(event => {
     if (event.date !== dateStr) return false;

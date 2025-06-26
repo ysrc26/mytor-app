@@ -1,6 +1,6 @@
 // src/app/api/appointments/[id]/status/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
-import { supabasePublic } from '@/lib/supabase-public';
+import { getSupabaseClient } from '@/lib/api-auth';
 import { authenticateRequest, validateAppointmentOwnership } from '@/lib/api-auth';
 
 // 📊 Get appointment status (PUBLIC - for client to check)
@@ -12,6 +12,7 @@ export async function GET(
     const { id } = await params;
 
     // 🌐 PUBLIC ACCESS - no authentication required
+    const supabasePublic = await getSupabaseClient('public');
     const { data: appointmentData, error } = await supabasePublic
       .from('appointments')
       .select(`
@@ -92,7 +93,7 @@ export async function PUT(
     }
 
     // 🔒 Authenticate user
-    const auth = await authenticateRequest(request);
+    const auth = await authenticateRequest();
     if (!auth.user) {
       return NextResponse.json({ error: auth.error }, { status: 401 });
     }
@@ -104,7 +105,9 @@ export async function PUT(
     }
 
     // 🔄 Update status
-    const { error: updateError } = await supabasePublic
+    const supabase = await getSupabaseClient('server'); // 🔧 Use authenticated supabase client
+    
+    const { error: updateError } = await supabase
       .from('appointments')
       .update({ status })
       .eq('id', id);

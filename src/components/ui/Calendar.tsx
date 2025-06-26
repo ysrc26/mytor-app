@@ -416,7 +416,7 @@ export const Calendar: React.FC<CalendarProps> = ({
 
   // פונקציה לקבלת אירועים שנמשכים כל היום
   const getAllDayEvents = (events: CalendarEvent[], date: Date): CalendarEvent[] => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     return events.filter(event =>
       event.date === dateStr && event.is_all_day === true
     );
@@ -425,7 +425,7 @@ export const Calendar: React.FC<CalendarProps> = ({
   // פונקציה לבדוק אם יש אירועי יום שלם בתאריכים מסוימים
   const hasAnyAllDayEvents = (events: CalendarEvent[], dates: Date[]): boolean => {
     return dates.some(date => {
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
       return events.some(event => event.date === dateStr && event.is_all_day === true);
     });
   };

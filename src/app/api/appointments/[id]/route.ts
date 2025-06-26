@@ -1,6 +1,6 @@
-// src/app/api/appointments/[id]/route.ts - FIXED VERSION
+// src/app/api/appointments/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { supabasePublic } from '@/lib/supabase-public';
+import { getSupabaseClient } from '@/lib/api-auth';
 import { authenticateRequest, validateAppointmentOwnership } from '@/lib/api-auth';
 import { AppointmentValidator } from '@/lib/appointment-utils';
 import { timeUtils } from '@/lib/time-utils';
@@ -22,6 +22,14 @@ export async function PUT(
     // 📋 Parse request body
     const { date, time, service_id } = await request.json();
     
+    console.log('🔧 Update appointment request:', {
+      appointmentId: id,
+      date,
+      time,
+      service_id,
+      userId: auth.user.id
+    });
+
     // 🔒 Validate appointment ownership
     const ownership = await validateAppointmentOwnership(auth.user.id, id);
     if (!ownership.isOwner) {
@@ -29,6 +37,7 @@ export async function PUT(
     }
 
     const appointment = ownership.appointment;
+    console.log('✅ Current appointment:', appointment);
 
     // 🎯 Validate new time slot if date/time/service changed
     if (date && time && service_id) {
@@ -37,7 +46,7 @@ export async function PUT(
         serviceId: service_id,
         date,
         time,
-        excludeAppointmentId: id  // 🔑 Exclude current appointment from conflict check
+        excludeAppointmentId: id
       });
 
       if (!validationResult.isValid) {
@@ -45,35 +54,45 @@ export async function PUT(
       }
     }
 
-    // 💾 Update appointment
+    // 💾 Update appointment - תיקון: עדכון בשלבים
+    const supabase = await getSupabaseClient('server'); // 🔧 השתמש בsupabase מאומת
+
     const updateData: any = {};
     if (date) updateData.date = date;
     if (time) updateData.time = timeUtils.normalizeTime(time);
     if (service_id !== undefined) updateData.service_id = service_id;
 
-    const { data: updatedAppointment, error: updateError } = await supabasePublic
+    console.log('📝 Update data to apply:', updateData);
+
+    // שלב 1: עדכון התור בלבד
+    const { error: updateError } = await supabase
       .from('appointments')
       .update(updateData)
-      .eq('id', id)
-      .select(`
-        id, date, time, status, note,
-        services!inner(name, duration_minutes),
-        businesses!inner(name)
-      `)
-      .single();
+      .eq('id', id);
 
     if (updateError) {
-      console.error('Update error:', updateError);
+      console.error('❌ Update error:', updateError);
       return NextResponse.json({ error: 'שגיאה בעדכון התור' }, { status: 500 });
     }
 
+    console.log('✅ Update successful');
+
+    // החזרת תשובה מוצלחת עם הנתונים שעודכנו
     return NextResponse.json({ 
       message: 'התור עודכן בהצלחה',
-      appointment: updatedAppointment 
+      appointment: {
+        id,
+        date: updateData.date || appointment.date,
+        time: updateData.time || appointment.time,
+        service_id: updateData.service_id || appointment.service_id,
+        status: appointment.status,
+        client_name: appointment.client_name,
+        client_phone: appointment.client_phone
+      }
     });
 
   } catch (error) {
-    console.error('Error updating appointment:', error);
+    console.error('💥 Error updating appointment:', error);
     return NextResponse.json({ error: 'שגיאת שרת פנימית' }, { status: 500 });
   }
 }
@@ -85,7 +104,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    
+
     // 🔒 Authenticate user
     const auth = await authenticateRequest();
     if (!auth.user) {
@@ -99,7 +118,9 @@ export async function DELETE(
     }
 
     // 🗑️ Delete appointment
-    const { error: deleteError } = await supabasePublic
+    const supabase = await getSupabaseClient('server'); // 🔧 השתמש בsupabase מאומת
+
+    const { error: deleteError } = await supabase
       .from('appointments')
       .delete()
       .eq('id', id);

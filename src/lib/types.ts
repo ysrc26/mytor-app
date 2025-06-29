@@ -227,7 +227,7 @@ export interface Appointment {
   id: string;
   user_id: string;
   business_id: string;
-  service_id: string;
+  service_id?: string;
   client_name: string;
   client_phone: string;
   client_verified: boolean;

@@ -8,6 +8,7 @@ import {
     Filter, Sparkles, MapPin, Phone, MessageCircle, X, Tag
 } from 'lucide-react';
 import { showSuccessToast } from '@/lib/toast-utils';
+import { isToday, isPastTime, dateToLocalString } from '@/lib/calendar-utils';
 import type { Appointment, Availability, Service } from '@/lib/types';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 
@@ -126,7 +127,7 @@ export const CalendarView = ({
 
     const goToToday = () => {
         setCurrentDate(new Date());
-        setSelectedDate(new Date());
+        // setSelectedDate(new Date());
     };
 
     const handleServiceFilter = (serviceId: string) => {
@@ -307,14 +308,26 @@ const CalendarHeader = ({
     const [showFilters, setShowFilters] = useState(false);
     const { preferences: userPreferences } = useUserPreferences();
     const formatHeaderDate = () => {
+        // פונקציה לקבלת תחילת השבוע
+        const weekStart = getWeekStart(currentDate);
+        
         switch (viewMode) {
             case 'month':
                 return currentDate.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
             case 'week':
-                const weekStart = getWeekStart(currentDate);
                 const weekEnd = new Date(weekStart);
                 weekEnd.setDate(weekEnd.getDate() + 6);
-                return `${weekStart.getDate()}-${weekEnd.getDate()} ${weekStart.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}`;
+
+                // בדיקה אם השבוע חוצה חודשים
+                if (weekStart.getMonth() !== weekEnd.getMonth()) {
+                    // שני חודשים שונים
+                    const startMonth = weekStart.toLocaleDateString('he-IL', { month: 'long' });
+                    const endMonthYear = weekEnd.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
+                    return `${weekStart.getDate()} ${startMonth} - ${weekEnd.getDate()} ${endMonthYear}`;
+                } else {
+                    // אותו חודש
+                    return `${weekStart.getDate()}-${weekEnd.getDate()} ${weekStart.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}`;
+                }
             case 'work-days':
                 const workDays = availability
                     .filter((avail: any) => avail.is_active)
@@ -325,11 +338,26 @@ const CalendarHeader = ({
                 if (workDays.length === 0) {
                     return currentDate.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' }) + ' - אין ימי עבודה';
                 }
+                // מציאת יום העבודה הראשון והאחרון בשבוע הנוכחי
+                const workDaysInWeek = workDays.map(dayOfWeek => {
+                    const day = new Date(weekStart);
+                    day.setDate(weekStart.getDate() + dayOfWeek);
+                    return day;
+                });
 
-                const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
-                const workDayNames = workDays.map(day => dayNames[day]).join(', ');
-                const weekStart2 = getWeekStart(currentDate);
-                return `ימי עבודה (${workDayNames}) - ${weekStart2.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}`;
+                const firstWorkDay = workDaysInWeek[0];
+                const lastWorkDay = workDaysInWeek[workDaysInWeek.length - 1];
+
+                // בדיקה אם ימי העבודה חוצים חודשים
+                if (firstWorkDay.getMonth() !== lastWorkDay.getMonth()) {
+                    // שני חודשים שונים
+                    const startMonth = firstWorkDay.toLocaleDateString('he-IL', { month: 'long' });
+                    const endMonthYear = lastWorkDay.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
+                    return `${firstWorkDay.getDate()} ${startMonth} - ${lastWorkDay.getDate()} ${endMonthYear}`;
+                } else {
+                    // אותו חודש
+                    return `${firstWorkDay.getDate()}-${lastWorkDay.getDate()} ${firstWorkDay.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}`;
+                }
             case 'day':
                 return currentDate.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
             case 'agenda':
@@ -368,7 +396,7 @@ const CalendarHeader = ({
                             <ChevronRight className="w-5 h-5" />
                         </button>
 
-                        <div className="min-w-48 text-center">
+                        <div className="min-w-72 text-center">
                             <h4 className="font-semibold text-gray-900">{formatHeaderDate()}</h4>
                         </div>
 
@@ -602,7 +630,7 @@ const MonthView = ({
     }, [currentDate]);
 
     const getDayAppointments = (date: Date) => {
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = dateToLocalString(date);
         return appointments.filter(apt => apt.date === dateStr);
     };
 
@@ -614,6 +642,20 @@ const MonthView = ({
     const isToday = (date: Date) => {
         const today = new Date();
         return date.toDateString() === today.toDateString();
+    };
+
+    const isPastTime = (date: Date, time?: string) => {
+        const now = new Date();
+        if (time) {
+            const dateTime = new Date(`${date.toISOString().split('T')[0]} ${time}`);
+            return dateTime < now;
+        }
+        // עבור תאריכים - בדוק רק את התאריך (לא שעה)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const checkDate = new Date(date);
+        checkDate.setHours(0, 0, 0, 0);
+        return checkDate < today;
     };
 
     const isCurrentMonth = (date: Date) => {
@@ -647,13 +689,13 @@ const MonthView = ({
                             key={index}
                             onClick={() => onDateSelect(date)}
                             className={`
-                min-h-24 p-2 border border-gray-100 cursor-pointer transition-all duration-200
-                ${currentMonth ? 'bg-white' : 'bg-gray-50'}
-                ${todayDate ? 'border-blue-400 bg-blue-50' : ''}
-                ${isSelected ? 'ring-2 ring-blue-500 bg-blue-100' : ''}
-                hover:bg-gray-50
-                ${!currentMonth ? 'opacity-60' : ''}
-              `}
+                                min-h-24 p-2 border border-gray-100 transition-all duration-200
+                                ${currentMonth ? 'bg-white' : 'bg-gray-50'}
+                                ${todayDate ? 'border-blue-400 bg-blue-50' : ''}
+                                ${isSelected ? 'ring-2 ring-blue-500 bg-blue-100' : ''}
+                                ${!isPastTime(date) ? 'cursor-pointer hover:bg-gray-50' : 'cursor-pointer opacity-60'}
+                                ${!currentMonth ? 'opacity-60' : ''}
+                            `}
                         >
                             {/* Date Number */}
                             <div className={`text-sm font-medium mb-1 ${todayDate ? 'text-blue-600' :
@@ -807,7 +849,7 @@ const WeekView = ({
 
     // קבלת תורים ליום ספציפי
     const getDayAppointments = (date: Date) => {
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = dateToLocalString(date);
         return appointments.filter(apt => apt.date === dateStr);
     };
 
@@ -877,7 +919,6 @@ const WeekView = ({
         return (totalMinutes / 60) * 64;
     };
 
-    const isToday = (date: Date) => date.toDateString() === new Date().toDateString();
     const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
     return (
@@ -949,7 +990,7 @@ const WeekView = ({
                                     const isAvailable = isTimeAvailable(date, slot.time);
                                     const appointment = findAppointmentAtTime(date, slot.time);
                                     const isStart = appointment && isAppointmentStart(appointment, slot.time);
-                                    const dateStr = date.toISOString().split('T')[0];
+                                    const dateStr = dateToLocalString(date);
 
                                     return (
                                         <div
@@ -957,7 +998,7 @@ const WeekView = ({
                                             onClick={() => {
                                                 if (appointment && isStart) {
                                                     onEditAppointment?.(appointment);
-                                                } else if (!appointment && onCreateAppointment) {
+                                                } else if (!appointment && onCreateAppointment && !isPastTime(date, slot.time)) {
                                                     onCreateAppointment(dateStr, slot.time);
                                                 }
                                             }}
@@ -1129,7 +1170,7 @@ const WorkDaysView = ({
 
     // קבלת תורים ליום ספציפי
     const getDayAppointments = (date: Date) => {
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = dateToLocalString(date);
         return appointments.filter(apt => apt.date === dateStr);
     };
 
@@ -1199,7 +1240,6 @@ const WorkDaysView = ({
         return (totalMinutes / 60) * 64;
     };
 
-    const isToday = (date: Date) => date.toDateString() === new Date().toDateString();
     const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
     // אם אין ימי עבודה מוגדרים
@@ -1286,7 +1326,7 @@ const WorkDaysView = ({
                                     const isAvailable = isTimeAvailable(date, slot.time);
                                     const appointment = findAppointmentAtTime(date, slot.time);
                                     const isStart = appointment && isAppointmentStart(appointment, slot.time);
-                                    const dateStr = date.toISOString().split('T')[0];
+                                    const dateStr = dateToLocalString(date);
 
                                     return (
                                         <div
@@ -1294,7 +1334,7 @@ const WorkDaysView = ({
                                             onClick={() => {
                                                 if (appointment && isStart) {
                                                     onEditAppointment?.(appointment);
-                                                } else if (!appointment && onCreateAppointment) {
+                                                } else if (!appointment && onCreateAppointment && !isPastTime(date, slot.time)) {
                                                     onCreateAppointment(dateStr, slot.time);
                                                 }
                                             }}
@@ -1381,19 +1421,20 @@ const AgendaView = ({
     onUpdateStatus
 }: AgendaViewProps) => {
     const agendaData = useMemo(() => {
-        // במקום 7 ימים, תציג רק את התורים של התאריך הנוכחי
-        const todayStr = currentDate.toISOString().split('T')[0];
+        // השתמש בתאריך מקומי במקום toISOString
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth() + 1;
+        const day = currentDate.getDate();
+        const dateStr = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
 
-        const todayAppointments = appointments
-            .filter(apt => apt.date === todayStr)
+        const dayAppointments = appointments
+            .filter(apt => apt.date === dateStr)
             .sort((a, b) => a.time.localeCompare(b.time));
 
-        // החזר מבנה פשוט של תורים ליום
-        return todayStr ? { [todayStr]: todayAppointments } : {};
+        return dateStr ? { [dateStr]: dayAppointments } : {};
     }, [appointments, currentDate]);
 
-    const formatDate = (dateStr: string) => {
-        const date = new Date(dateStr);
+    const formatDate = (date: Date) => {
         const today = new Date();
         const tomorrow = new Date();
         tomorrow.setDate(today.getDate() + 1);
@@ -1414,13 +1455,19 @@ const AgendaView = ({
     };
 
     const getTotalAppointments = () => {
-        const todayStr = currentDate.toISOString().split('T')[0];
-        return agendaData[todayStr]?.length || 0;
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth() + 1;
+        const day = currentDate.getDate();
+        const dateStr = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+        return agendaData[dateStr]?.length || 0;
     };
 
     const getPendingCount = () => {
-        const todayStr = currentDate.toISOString().split('T')[0];
-        return agendaData[todayStr]?.filter(apt => apt.status === 'pending').length || 0;
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth() + 1;
+        const day = currentDate.getDate();
+        const dateStr = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+        return agendaData[dateStr]?.filter(apt => apt.status === 'pending').length || 0;
     };
 
     return (
@@ -1431,7 +1478,7 @@ const AgendaView = ({
                     <div className="flex items-center justify-between">
                         <div>
                             <h4 className="font-semibold text-gray-900">
-                                {formatDate(currentDate.toISOString().split('T')[0])}
+                                {formatDate(currentDate)}
                             </h4>
                         </div>
                         <div className="flex items-center gap-4">
@@ -1581,10 +1628,10 @@ const SelectedDatePanel = ({
         return [...appointments].sort((a, b) => a.time.localeCompare(b.time));
     }, [appointments]);
 
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = dateToLocalString(date);
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 backdrop-blur-sm bg-white/20 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-96 overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-gray-200">
@@ -1615,17 +1662,21 @@ const SelectedDatePanel = ({
                         <div className="text-center py-8">
                             <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                             <h4 className="text-lg font-medium text-gray-900 mb-2">אין תורים ביום זה</h4>
-                            <p className="text-gray-500 mb-4">תוכל להוסיף תור חדש ליום זה</p>
-                            {onCreateAppointment && (
-                                <button
-                                    onClick={() => {
-                                        onCreateAppointment(dateStr, '09:00');
-                                        onClose();
-                                    }}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                                >
-                                    הוסף תור
-                                </button>
+                            {!isPastTime(date) && (
+                                <>
+                                    <p className="text-gray-500 mb-4">תוכל להוסיף תור חדש ליום זה</p>
+                                    {onCreateAppointment && (
+                                        <button
+                                            onClick={() => {
+                                                onCreateAppointment(dateStr, '09:00');
+                                                onClose();
+                                            }}
+                                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                                        >
+                                            הוסף תור
+                                        </button>
+                                    )}
+                                </>
                             )}
                         </div>
                     ) : (
@@ -1665,7 +1716,7 @@ const SelectedDatePanel = ({
                                                         appointment.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
                                                             appointment.status === 'declined' ? 'bg-red-100 text-red-700' :
                                                                 'bg-gray-100 text-gray-700'}
-                        `}>
+                                         `}>
                                                     {appointment.status === 'confirmed' ? 'אושר' :
                                                         appointment.status === 'pending' ? 'ממתין' :
                                                             appointment.status === 'declined' ? 'נדחה' : 'בוטל'}
@@ -1706,6 +1757,22 @@ const SelectedDatePanel = ({
                                     </div>
                                 );
                             })}
+
+                            {/* כפתור הוספת תור - רק אם התאריך לא עבר */}
+                            {!isPastTime(date) && onCreateAppointment && (
+                                <div className="pt-4 border-t border-gray-200">
+                                    <button
+                                        onClick={() => {
+                                            onCreateAppointment(dateStr, '09:00');
+                                            onClose();
+                                        }}
+                                        className="w-full p-3 border-2 border-dashed border-blue-300 text-blue-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        הוסף תור נוסף
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -1736,11 +1803,6 @@ const getWeekStart = (date: Date) => {
     start.setDate(date.getDate() - date.getDay());
     return start;
 };
-
-const isToday = (date: Date) => {
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-}
 
 // ===================================
 // 📋 Day View Component - גרסה משופרת
@@ -1944,7 +2006,7 @@ const DayView = ({
                                     onClick={() => {
                                         if (appointment && isStart) {
                                             onEditAppointment?.(appointment);
-                                        } else if (!appointment && onCreateAppointment) {
+                                        } else if (!appointment && onCreateAppointment && !isPastTime(currentDate, slot.time)) {
                                             onCreateAppointment(dateStr, slot.time);
                                         }
                                     }}

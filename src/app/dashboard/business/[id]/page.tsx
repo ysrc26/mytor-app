@@ -314,7 +314,7 @@ export default function BusinessDashboard() {
       </div>
     );
   }
-  
+
   if (hasError || !business) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -434,7 +434,7 @@ export default function BusinessDashboard() {
                   onCreateAppointment={handleCalendarCreateAppointment}
                   onEditAppointment={handleEditAppointment}
                   onUpdateStatus={handleUpdateAppointmentStatus}
-                  initialView={calendarView} 
+                  initialView={calendarView}
                 />
               )}
 
@@ -526,6 +526,8 @@ export default function BusinessDashboard() {
         }}
         services={services}
         onCreate={handleCreateAppointment}
+        prefilledDate={createAppointmentData.date}
+        prefilledTime={createAppointmentData.time}
       />
 
       <EditAppointmentModal

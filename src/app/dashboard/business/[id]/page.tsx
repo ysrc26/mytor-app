@@ -3,9 +3,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { useRealtime } from '@/hooks/useRealtime';
 import { useBusinessData } from '@/hooks/useBusinessData';
 import { useAppointments } from '@/hooks/useAppointments';
-import { useRealtime } from '@/hooks/useRealtime';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
 
 // UI Components
 import { Header } from '@/components/dashboard/Header';
@@ -20,6 +21,7 @@ import { AppointmentsList } from '@/components/dashboard/AppointmentsList';
 import { BusinessProfileModal } from '@/components/dashboard/modals/BusinessProfileModal';
 import { ServicesModal } from '@/components/dashboard/modals/ServicesModal';
 import { AvailabilityModal } from '@/components/dashboard/modals/AvailabilityModal';
+import { SettingsModal } from '@/components/dashboard/modals/SettingsModal';
 import { CreateAppointmentModal } from '@/components/dashboard/modals/CreateAppointmentModal';
 import { EditAppointmentModal } from '@/components/dashboard/modals/EditAppointmentModal';
 import { DeleteConfirmationModal } from '@/components/dashboard/modals/DeleteConfirmationModal';
@@ -40,6 +42,7 @@ export default function BusinessDashboard() {
   // 🎯 Hooks - Data & Authentication
   // ===================================
   const { user, loading: userLoading, isAuthenticated } = useAuth();
+  const { preferences: userPreferences, loading: preferencesLoading } = useUserPreferences();
 
   const {
     business,
@@ -120,10 +123,12 @@ export default function BusinessDashboard() {
   const [activeTab, setActiveTab] = useState<TabType>('pending');
   const [sideNavOpen, setSideNavOpen] = useState(false);
 
+
   // Modal States
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [servicesModalOpen, setServicesModalOpen] = useState(false);
   const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [createAppointmentModalOpen, setCreateAppointmentModalOpen] = useState(false);
   const [createAppointmentData, setCreateAppointmentData] = useState<{
     date?: string;
@@ -136,7 +141,7 @@ export default function BusinessDashboard() {
   }>({ isOpen: false, appointmentId: null, appointment: null });
 
   // Calendar State
-  const [calendarView, setCalendarView] = useState<'month' | 'week' | 'day' | 'agenda'>('month');
+  const [calendarView, setCalendarView] = useState<'month' | 'week' | 'day' | 'agenda' | 'work-days'>('work-days');
   const [calendarCurrentDate, setCalendarCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
@@ -288,6 +293,14 @@ export default function BusinessDashboard() {
     };
   }, [businessId, clearBusinessError, clearAppointmentsError]);
 
+  // 🔧 User Preferences - Calendar View
+  useEffect(() => {
+    // עדכן את תצוגת היומן לפי העדפות המשתמש כשהן נטענות
+    if (userPreferences?.default_calendar_view && !preferencesLoading) {
+      setCalendarView(userPreferences.default_calendar_view);
+    }
+  }, [userPreferences, preferencesLoading]);
+
   // ===================================
   // 🔧 Loading & Error States
   // ===================================
@@ -301,7 +314,7 @@ export default function BusinessDashboard() {
       </div>
     );
   }
-
+  
   if (hasError || !business) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -365,10 +378,11 @@ export default function BusinessDashboard() {
           else if (modalType === 'services') setServicesModalOpen(true);
           else if (modalType === 'availability') setAvailabilityModalOpen(true);
         }}
+        onOpenSettingsModal={() => setSettingsModalOpen(true)}
       />
 
       {/* Main Content - Fixed Layout */}
-      <div className="lg:mr-80 transition-all duration-300">
+      <div className="transition-all duration-300">
         {/* Header */}
         <Header
           business={business}
@@ -382,13 +396,13 @@ export default function BusinessDashboard() {
 
         {/* Main Dashboard Content - Centered */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {/* Stats Cards */}
+          {/* Stats Cards
           <div className="mb-8">
             <StatsCards
               appointments={appointments}
               loading={appointmentsLoading}
             />
-          </div>
+          </div> */}
 
           {/* Tab Navigation */}
           <div className="bg-white rounded-lg shadow mb-6">
@@ -420,6 +434,7 @@ export default function BusinessDashboard() {
                   onCreateAppointment={handleCalendarCreateAppointment}
                   onEditAppointment={handleEditAppointment}
                   onUpdateStatus={handleUpdateAppointmentStatus}
+                  initialView={calendarView} 
                 />
               )}
 
@@ -496,6 +511,11 @@ export default function BusinessDashboard() {
         businessId={businessId}
         onAddAvailability={addAvailability}
         onDeleteAvailability={deleteAvailability}
+      />
+
+      <SettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
       />
 
       <CreateAppointmentModal

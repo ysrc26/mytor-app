@@ -27,7 +27,8 @@ export async function GET() {
     // אם אין העדפות, החזר ברירות מחדל
     if (!preferences) {
       return NextResponse.json({
-        default_calendar_view: 'work-days'
+        default_calendar_view: 'work-days',
+        booking_advance_limit: 'week'
       });
     }
 
@@ -47,12 +48,18 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { default_calendar_view } = body;
+    const { default_calendar_view, booking_advance_limit } = body;
 
     // Validation
-    const validViews = ['day', 'three-days', 'week', 'work-days', 'month'];
+    const validViews = ['day', 'week', 'work-days', 'month', 'agenda'];
+    const validBookingLimits = ['week', 'two-weeks', 'month'];
+
     if (!validViews.includes(default_calendar_view)) {
       return NextResponse.json({ error: 'Invalid calendar view' }, { status: 400 });
+    }
+
+    if (booking_advance_limit && !validBookingLimits.includes(booking_advance_limit)) {
+      return NextResponse.json({ error: 'Invalid booking advance limit' }, { status: 400 });
     }
 
     // שימוש בפונקציה הקיימת לקבלת הקליינט
@@ -63,7 +70,8 @@ export async function PUT(request: NextRequest) {
       .from('user_preferences')
       .upsert({
         user_id: user.id,
-        default_calendar_view
+        default_calendar_view,
+        booking_advance_limit: booking_advance_limit || 'week'
       }, {
         onConflict: 'user_id'
       })

@@ -45,7 +45,7 @@ export interface CalendarAvailability {
   is_active: boolean;
 }
 
-export type CalendarView = 'day' | 'three-days' | 'week' | 'work-days' | 'month';
+export type CalendarView = 'day' | 'week' | 'month' | 'work-days' | 'agenda';
 
 export interface TimeSlot {
   time: string;
@@ -180,6 +180,7 @@ export interface UserPreferences {
   id: string;
   user_id: string;
   default_calendar_view: CalendarView;
+  booking_advance_limit: 'week' | 'two-weeks' | 'month';
   created_at: string;
   updated_at: string;
 }

@@ -21,6 +21,7 @@ interface SideNavigationProps {
   availability: Availability[];
   user?: User | null;
   onOpenModal?: (modalType: 'profile' | 'services' | 'availability') => void;
+  onOpenSettingsModal?: () => void;
 }
 
 export const SideNavigation = ({
@@ -30,7 +31,8 @@ export const SideNavigation = ({
   services,
   availability,
   user,
-  onOpenModal
+  onOpenModal,
+  onOpenSettingsModal, 
 }: SideNavigationProps) => {
   const router = useRouter();
   const supabase = createClient();
@@ -111,6 +113,7 @@ export const SideNavigation = ({
             user={user}
             onLogout={handleLogout}
             onClose={onClose}
+            onOpenSettingsModal={onOpenSettingsModal} 
           />
         </div>
       </div>
@@ -309,9 +312,10 @@ interface UserSectionProps {
   user?: User | null;
   onLogout: () => void;
   onClose: () => void;
+  onOpenSettingsModal?: () => void;
 }
 
-const UserSection = ({ user, onLogout, onClose }: UserSectionProps) => {
+const UserSection = ({ user, onLogout, onClose, onOpenSettingsModal }: UserSectionProps) => {
   const router = useRouter();
 
   return (
@@ -341,7 +345,7 @@ const UserSection = ({ user, onLogout, onClose }: UserSectionProps) => {
       {/* System Settings */}
       <button
         onClick={() => {
-          router.push('/dashboard/settings');
+          onOpenSettingsModal?.();
           onClose();
         }}
         className="w-full text-right p-3 rounded-xl hover:bg-gray-50 transition-colors flex items-center gap-3"

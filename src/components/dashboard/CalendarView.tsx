@@ -1,7 +1,7 @@
 // src/components/dashboard/CalendarView.tsx
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
     Calendar, ChevronLeft, ChevronRight, Clock, Users, Plus,
     Eye, Settings, TrendingUp, BarChart, CheckCircle, AlertCircle,
@@ -9,24 +9,27 @@ import {
 } from 'lucide-react';
 import { showSuccessToast } from '@/lib/toast-utils';
 import type { Appointment, Availability, Service } from '@/lib/types';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
 
 interface CalendarViewProps {
     appointments: Appointment[];
     availability: Availability[];
     services: Service[];
     businessId: string;
+    initialView?: CalendarViewMode;
     onCreateAppointment?: (date: string, time: string) => void;
     onEditAppointment?: (appointment: Appointment) => void;
-    onUpdateStatus?: (appointmentId: string, status: 'confirmed' | 'declined') => void;
+    onUpdateStatus: (appointmentId: string, status: 'confirmed' | 'declined' | 'cancelled') => void;
 }
 
-type CalendarViewMode = 'month' | 'week' | 'work-days' | 'day' | 'agenda';
+type CalendarViewMode = 'day' | 'work-days' | 'week' | 'month' | 'agenda';
 
 export const CalendarView = ({
     appointments,
     availability,
     services,
     businessId,
+    initialView = 'month',
     onCreateAppointment,
     onEditAppointment,
     onUpdateStatus
@@ -34,7 +37,8 @@ export const CalendarView = ({
     // ===================================
     // 🎯 State Management
     // ===================================
-    const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
+    const { preferences: userPreferences } = useUserPreferences();
+    const [viewMode, setViewMode] = useState<CalendarViewMode>(initialView);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [currentTime, setCurrentTime] = useState(new Date());
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -49,6 +53,15 @@ export const CalendarView = ({
         const timer = setInterval(updateCurrentTime, 60000);
         return () => clearInterval(timer);
     }, []);
+
+    // ===================================
+    // 📅 View Mode Initialization
+    // ===================================
+    useEffect(() => {
+        if (initialView) {
+            setViewMode(initialView);
+        }
+    }, [initialView]);
 
     // ===================================
     // 📊 Computed Data
@@ -103,6 +116,7 @@ export const CalendarView = ({
                 newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
                 break;
             case 'day':
+            case 'agenda':
                 newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
                 break;
         }
@@ -157,29 +171,46 @@ export const CalendarView = ({
                 showAvailabilityOnly={showAvailabilityOnly}
                 onToggleAvailability={() => setShowAvailabilityOnly(!showAvailabilityOnly)}
                 availability={availability}
-            />
-
-            {/* Filters */}
-            <CalendarFilters
                 services={services}
                 selectedServices={selectedServices}
                 onServiceToggle={handleServiceFilter}
                 onClearFilters={() => setSelectedServices(new Set())}
             />
 
+            {/* Filters
+            <CalendarFilters
+                services={services}
+                selectedServices={selectedServices}
+                onServiceToggle={handleServiceFilter}
+                onClearFilters={() => setSelectedServices(new Set())}
+            /> */}
+
             {/* Calendar Content */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-lg overflow-hidden">
-                {viewMode === 'month' && (
-                    <MonthView
+
+                {viewMode === 'day' && (
+                    <DayView
                         currentDate={currentDate}
                         appointments={filteredAppointments}
                         availability={availability}
                         services={services}
-                        selectedDate={selectedDate}
-                        onDateSelect={setSelectedDate}
-                        showAvailabilityOnly={showAvailabilityOnly}
                         onCreateAppointment={onCreateAppointment}
                         onEditAppointment={onEditAppointment}
+                        onUpdateStatus={onUpdateStatus}
+                    />
+                )}
+
+                {viewMode === 'work-days' && (
+                    <WorkDaysView
+                        currentDate={currentDate}
+                        appointments={filteredAppointments}
+                        availability={availability}
+                        services={services}
+                        onCreateAppointment={onCreateAppointment}
+                        onEditAppointment={onEditAppointment}
+                        onUpdateStatus={onUpdateStatus}
+                    // currentTime={currentTime}
+                    // getCurrentTimePosition={getCurrentTimePosition}
                     />
                 )}
 
@@ -193,33 +224,21 @@ export const CalendarView = ({
                         onEditAppointment={onEditAppointment}
                         onUpdateStatus={onUpdateStatus}
                         currentTime={currentTime}  // 👈 הוסף
-                        getCurrentTimePosition={getCurrentTimePosition}
+                    // getCurrentTimePosition={getCurrentTimePosition}
                     />
                 )}
 
-                {viewMode === 'work-days' && (
-                    <WorkDaysView
+                {viewMode === 'month' && (
+                    <MonthView
                         currentDate={currentDate}
                         appointments={filteredAppointments}
                         availability={availability}
                         services={services}
+                        selectedDate={selectedDate}
+                        onDateSelect={setSelectedDate}
+                        showAvailabilityOnly={showAvailabilityOnly}
                         onCreateAppointment={onCreateAppointment}
                         onEditAppointment={onEditAppointment}
-                        onUpdateStatus={onUpdateStatus}
-                        currentTime={currentTime}
-                        getCurrentTimePosition={getCurrentTimePosition}
-                    />
-                )}
-
-                {viewMode === 'day' && (
-                    <DayView
-                        currentDate={currentDate}
-                        appointments={filteredAppointments}
-                        availability={availability}
-                        services={services}
-                        onCreateAppointment={onCreateAppointment}
-                        onEditAppointment={onEditAppointment}
-                        onUpdateStatus={onUpdateStatus}
                     />
                 )}
 
@@ -264,6 +283,10 @@ interface CalendarHeaderProps {
     showAvailabilityOnly: boolean;
     onToggleAvailability: () => void;
     availability: Availability[];
+    services: Service[];
+    selectedServices: Set<string>;
+    onServiceToggle: (serviceId: string) => void;
+    onClearFilters: () => void;
 }
 
 const CalendarHeader = ({
@@ -275,8 +298,14 @@ const CalendarHeader = ({
     stats,
     showAvailabilityOnly,
     onToggleAvailability,
-    availability
+    availability,
+    services,
+    selectedServices,
+    onServiceToggle,
+    onClearFilters
 }: CalendarHeaderProps) => {
+    const [showFilters, setShowFilters] = useState(false);
+    const { preferences: userPreferences } = useUserPreferences();
     const formatHeaderDate = () => {
         switch (viewMode) {
             case 'month':
@@ -304,27 +333,31 @@ const CalendarHeader = ({
             case 'day':
                 return currentDate.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
             case 'agenda':
-                return 'סדר יום';
+                return currentDate.toLocaleDateString('he-IL', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric'
+                });
             default:
                 return '';
         }
     };
 
     const viewModes = [
-        { key: 'month' as const, label: 'חודש', icon: '🗓️' },
-        { key: 'week' as const, label: 'שבוע', icon: '📅' },
-        { key: 'work-days' as const, label: 'ימי עבודה', icon: '💼' },
         { key: 'day' as const, label: 'יום', icon: '📋' },
+        { key: 'work-days' as const, label: 'ימי עבודה', icon: '💼' },
+        { key: 'week' as const, label: 'שבוע', icon: '📅' },
+        { key: 'month' as const, label: 'חודש', icon: '🗓️' },
         { key: 'agenda' as const, label: 'סדר יום', icon: '📝' }
     ];
 
     return (
         <div className="mb-6">
-            {/* Title and Navigation */}
+            {/* שורה אחת עם הכל */}
             <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-4">
-                    <h3 className="text-xl font-bold text-gray-900">יומן תורים</h3>
-
+                {/* Navigation + View Modes */}
+                <div className="flex items-center gap-6">
                     {/* Navigation */}
                     <div className="flex items-center gap-2">
                         <button
@@ -353,6 +386,38 @@ const CalendarHeader = ({
                         >
                             היום
                         </button>
+
+                        {/* כפתור פילטר */}
+                        <button
+                            onClick={() => setShowFilters(!showFilters)}
+                            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors ${showFilters
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                }`}
+                        >
+                            <Filter className="w-4 h-4" />
+                        </button>
+                    </div>
+
+                    {/* View Mode Selector */}
+                    <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+                        {viewModes.map((mode) => (
+                            <button
+                                key={mode.key}
+                                onClick={() => onViewModeChange(mode.key)}
+                                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${viewMode === mode.key
+                                    ? 'bg-white text-blue-600 shadow-sm'
+                                    : 'text-gray-600 hover:text-gray-900'
+                                    }`}
+                                title={`תצוגת ${mode.label}${userPreferences?.default_calendar_view === mode.key ? ' (ברירת מחדל)' : ''}`}
+                            >
+                                <span className="text-xs">{mode.icon}</span>
+                                <span className="hidden sm:inline">{mode.label}</span>
+                                {userPreferences?.default_calendar_view === mode.key && (
+                                    <span className="text-xs bg-blue-100 text-blue-600 px-1 rounded ml-1">ברירת מחדל</span>
+                                )}
+                            </button>
+                        ))}
                     </div>
                 </div>
 
@@ -379,39 +444,40 @@ const CalendarHeader = ({
                 </div>
             </div>
 
-            {/* Controls */}
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                {/* View Mode Selector */}
-                <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-                    {viewModes.map((mode) => (
-                        <button
-                            key={mode.key}
-                            onClick={() => onViewModeChange(mode.key)}
-                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${viewMode === mode.key
-                                ? 'bg-white text-blue-600 shadow-sm'
-                                : 'text-gray-600 hover:text-gray-900'
-                                }`}
-                        >
-                            <span className="text-xs">{mode.icon}</span>
-                            <span className="hidden sm:inline">{mode.label}</span>
-                        </button>
-                    ))}
-                </div>
+            {/* Filters - מוסתר כברירת מחדל */}
+            {showFilters && (
+                <div className="mb-4 p-4 bg-gray-50 rounded-xl border">
+                    <div className="flex flex-wrap gap-2">
+                        {services.map((service) => (
+                            <button
+                                key={service.id}
+                                onClick={() => onServiceToggle(service.id)}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${selectedServices.has(service.id)
+                                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                                    : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                                    }`}
+                            >
+                                <Tag className="w-3 h-3" />
+                                {service.name}
+                            </button>
+                        ))}
+                    </div>
 
-                {/* Options */}
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={onToggleAvailability}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${showAvailabilityOnly
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            }`}
-                    >
-                        <Eye className="w-4 h-4" />
-                        {showAvailabilityOnly ? 'הצג הכל' : 'רק זמינות'}
-                    </button>
+                    {selectedServices.size > 0 && (
+                        <div className="mt-2 flex items-center justify-between">
+                            <div className="text-xs text-gray-500">
+                                מציג תורים עבור {selectedServices.size} שירותים
+                            </div>
+                            <button
+                                onClick={onClearFilters}
+                                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                            >
+                                נקה הכל
+                            </button>
+                        </div>
+                    )}
                 </div>
-            </div>
+            )}
         </div>
     );
 };
@@ -645,13 +711,16 @@ const MonthView = ({
 // 📅 Week View Component
 // ===================================
 
+// ===================================
+// 📅 Week View Component - גרסה משופרת
+// ===================================
+
 interface WeekViewProps {
     currentDate: Date;
+    currentTime: Date;
     appointments: Appointment[];
     availability: Availability[];
     services: Service[];
-    currentTime: Date;
-    getCurrentTimePosition: (timeSlot: string) => { showLine: boolean; percentage: number };  // 👈 הוסף
     onCreateAppointment?: (date: string, time: string) => void;
     onEditAppointment?: (appointment: Appointment) => void;
     onUpdateStatus?: (appointmentId: string, status: 'confirmed' | 'declined') => void;
@@ -662,40 +731,88 @@ const WeekView = ({
     appointments,
     availability,
     services,
-    currentTime,
-    getCurrentTimePosition,
     onCreateAppointment,
     onEditAppointment,
     onUpdateStatus
 }: WeekViewProps) => {
+    const [currentTime, setCurrentTime] = useState(new Date());
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const timeColumnRef = useRef<HTMLDivElement>(null);
 
-    const weekData = useMemo(() => {
-        const weekStart = getWeekStart(currentDate);
+    // עדכון זמן נוכחי כל דקה
+    useEffect(() => {
+        const updateCurrentTime = () => setCurrentTime(new Date());
+        updateCurrentTime();
+
+        const timer = setInterval(updateCurrentTime, 60000);
+        return () => clearInterval(timer);
+    }, []);
+
+    // סנכרון גלילה בין התוכן לעמודת השעות
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        if (timeColumnRef.current) {
+            timeColumnRef.current.scrollTop = e.currentTarget.scrollTop;
+        }
+    };
+
+    // גלילה לשעה הנוכחית
+    useEffect(() => {
+        if (!scrollContainerRef.current) return;
+
+        const now = new Date();
+        const currentHour = now.getHours();
+        const scrollToHour = Math.max(0, currentHour - 2);
+
+        const scrollPosition = scrollToHour * 64;
+
+        setTimeout(() => {
+            scrollContainerRef.current?.scrollTo({
+                top: scrollPosition,
+                behavior: 'smooth'
+            });
+        }, 300);
+    }, [currentDate]);
+
+    // קבלת ימי השבוע
+    const weekDays = useMemo(() => {
+        const startOfWeek = new Date(currentDate);
+        startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
+
         const days = [];
-
         for (let i = 0; i < 7; i++) {
-            const day = new Date(weekStart);
-            day.setDate(weekStart.getDate() + i);
+            const day = new Date(startOfWeek);
+            day.setDate(startOfWeek.getDate() + i);
             days.push(day);
         }
-
         return days;
     }, [currentDate]);
 
+    // יצירת כל רבעי השעה (0:00-23:45)
     const timeSlots = useMemo(() => {
         const slots = [];
-        for (let hour = 0; hour <= 23; hour++) {
-            slots.push(`${hour.toString().padStart(2, '0')}:00`);
+        for (let hour = 0; hour < 24; hour++) {
+            for (let quarter = 0; quarter < 4; quarter++) {
+                const minutes = quarter * 15;
+                const timeStr = `${hour.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                slots.push({
+                    time: timeStr,
+                    hour,
+                    quarter,
+                    isHourStart: quarter === 0
+                });
+            }
         }
         return slots;
     }, []);
 
+    // קבלת תורים ליום ספציפי
     const getDayAppointments = (date: Date) => {
         const dateStr = date.toISOString().split('T')[0];
         return appointments.filter(apt => apt.date === dateStr);
     };
 
-    const isDayAvailable = (date: Date, time: string) => {
+    // בדיקה אם זמן זמין ביום ספציפי
+    const isTimeAvailable = (date: Date, time: string) => {
         const dayOfWeek = date.getDay();
         const [hour, minute] = time.split(':').map(Number);
         const timeMinutes = hour * 60 + minute;
@@ -712,105 +829,195 @@ const WeekView = ({
         });
     };
 
-    const weekDays = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+    // חישוב משך התור לפי השירות
+    const getAppointmentDuration = (appointment: Appointment): number => {
+        const service = services.find(s => s.id === appointment.service_id);
+        return service?.duration_minutes || 60;
+    };
+
+    // חישוב אילו רבעי שעה התור תופס
+    const getAppointmentSlots = (appointment: Appointment) => {
+        const [hour, minute] = appointment.time.split(':').map(Number);
+        const startMinutes = hour * 60 + minute;
+        const duration = getAppointmentDuration(appointment);
+        const endMinutes = startMinutes + duration;
+
+        const occupiedSlots = [];
+        for (let currentMinutes = startMinutes; currentMinutes < endMinutes; currentMinutes += 15) {
+            const slotHour = Math.floor(currentMinutes / 60);
+            const slotMinute = currentMinutes % 60;
+            const slotTime = `${slotHour.toString().padStart(2, '0')}:${slotMinute.toString().padStart(2, '0')}`;
+            occupiedSlots.push(slotTime);
+        }
+
+        return occupiedSlots;
+    };
+
+    // מציאת תור בזמן ספציפי ביום ספציפי
+    const findAppointmentAtTime = (date: Date, time: string) => {
+        const dayAppointments = getDayAppointments(date);
+        return dayAppointments.find(apt => {
+            const occupiedSlots = getAppointmentSlots(apt);
+            return occupiedSlots.includes(time);
+        });
+    };
+
+    // בדיקה אם זה תחילת התור
+    const isAppointmentStart = (appointment: Appointment, time: string) => {
+        return appointment.time.substring(0, 5) === time;
+    };
+
+    // חישוב מיקום הקו האדום (רק לימי היום)
+    const getCurrentTimePosition = () => {
+        const now = currentTime;
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+
+        const totalMinutes = hours * 60 + minutes;
+        return (totalMinutes / 60) * 64;
+    };
+
+    const isToday = (date: Date) => date.toDateString() === new Date().toDateString();
+    const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
     return (
-        <div className="flex flex-col h-[500px] overflow-hidden">
-            {/* Week Header */}
-            <div className="flex border-b border-gray-200">
-                <div className="w-20 p-4 text-center text-sm font-medium text-gray-500">שעה</div>
-                {weekData.map((date, index) => (
-                    <div key={index} className="flex-1 p-4 text-center border-l border-gray-200">
-                        <div className="text-sm font-medium text-gray-600">{weekDays[date.getDay()]}</div>
-                        <div className={`text-lg font-bold ${isToday(date) ? 'text-blue-600' : 'text-gray-900'}`}>
-                            {date.getDate()}
+        <div className="h-[600px] bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col">
+            {/* כותרת השבוע */}
+            <div className="border-b border-gray-200 bg-gray-50">
+                <div className="flex">
+                    {/* תא ריק עבור עמודת השעות */}
+                    <div className="w-16 p-2 border-l border-gray-200"></div>
+
+                    {/* כותרות הימים */}
+                    {weekDays.map((date, index) => (
+                        <div key={index} className="flex-1 p-2 text-center border-l border-gray-200">
+                            <div className="text-xs font-medium text-gray-600 mb-1">
+                                {dayNames[date.getDay()]}
+                            </div>
+                            <div className={`text-sm font-bold ${isToday(date) ? 'text-blue-600' : 'text-gray-900'}`}>
+                                {date.getDate()}.{date.getMonth() + 1}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                                {getDayAppointments(date).length} תורים
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    ))}
+                </div>
             </div>
 
-            {/* Time Slots */}
-            <div className="flex-1 overflow-y-auto">
-                <div className="flex">
-                    {/* Time Column */}
-                    <div className="w-20">
-                        {timeSlots.map((time) => (
-                            <div key={time} className="h-12 p-2 text-xs text-gray-500 border-b border-gray-100">
-                                {time}
-                            </div>
-                        ))}
-                    </div>
+            {/* תוכן השבוע */}
+            <div className="flex flex-row-reverse flex-1 overflow-hidden">
+                {/* עמודת שעות - מימין */}
+                <div
+                    ref={timeColumnRef}
+                    className="w-16 border-l border-gray-200 bg-gray-50 overflow-y-auto order-2"
+                    style={{ overflowY: 'hidden' }}
+                >
+                    {Array.from({ length: 24 }, (_, hour) => (
+                        <div
+                            key={hour}
+                            className="h-16 flex items-start justify-center pt-1 border-b border-gray-100"
+                        >
+                            <span className="text-xs text-gray-500 font-mono">
+                                {hour.toString().padStart(2, '0')}:00
+                            </span>
+                        </div>
+                    ))}
+                </div>
 
-                    {/* Days Columns */}
-                    {weekData.map((date, dayIndex) => {
-                        const dayAppointments = getDayAppointments(date);
+                {/* תוכן הימים - משמאל */}
+                <div
+                    ref={scrollContainerRef}
+                    onScroll={handleScroll}
+                    className="flex-1 overflow-y-auto relative order-1"
+                >
+                    <div className="flex">
+                        {weekDays.map((date, dayIndex) => (
+                            <div key={dayIndex} className="flex-1 border-l border-gray-200 relative">
+                                {/* קו השעה הנוכחית - רק לימי היום */}
+                                {isToday(date) && (
+                                    <div
+                                        className="absolute left-0 right-0 h-0.5 bg-red-500 z-20"
+                                        style={{ top: `${getCurrentTimePosition()}px` }}
+                                    >
+                                        <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full"></div>
+                                    </div>
+                                )}
 
-                        return (
-                            <div key={dayIndex} className="flex-1 border-l border-gray-200">
-                                {timeSlots.map((time) => {
-                                    const isAvailable = isDayAvailable(date, time);
-                                    const appointment = dayAppointments.find(apt => apt.time === time);
+                                {/* רבעי השעות ליום */}
+                                {timeSlots.map((slot, slotIndex) => {
+                                    const isAvailable = isTimeAvailable(date, slot.time);
+                                    const appointment = findAppointmentAtTime(date, slot.time);
+                                    const isStart = appointment && isAppointmentStart(appointment, slot.time);
                                     const dateStr = date.toISOString().split('T')[0];
-
-                                    // Calculate current time position
-                                    const timePosition = getCurrentTimePosition(time);
-                                    const showCurrentTime = isToday(date) && timePosition.showLine;
 
                                     return (
                                         <div
-                                            key={time}
+                                            key={`${dayIndex}-${slotIndex}`}
                                             onClick={() => {
-                                                if (appointment) {
+                                                if (appointment && isStart) {
                                                     onEditAppointment?.(appointment);
-                                                } else if (isAvailable && onCreateAppointment) {
-                                                    onCreateAppointment(dateStr, time);
+                                                } else if (!appointment && onCreateAppointment) {
+                                                    onCreateAppointment(dateStr, slot.time);
                                                 }
                                             }}
                                             className={`
-                                                relative h-12 p-1 border-b border-gray-100 cursor-pointer transition-colors
-                                                ${isAvailable ? 'bg-green-50 hover:bg-green-100' : 'bg-gray-50'}
-                                                ${appointment ? 'bg-blue-100 hover:bg-blue-200' : ''}
-                                            `}
+                        h-4 border-b border-gray-100 cursor-pointer transition-colors relative
+                        ${slot.isHourStart ? 'border-t border-gray-200' : ''}
+                        ${isAvailable
+                                                    ? 'bg-white hover:bg-green-50'
+                                                    : 'bg-gray-50 hover:bg-gray-100'
+                                                }
+                        ${appointment ? 'bg-blue-50' : ''}
+                      `}
                                         >
-                                            {/* 👇 הקו האדום */}
-                                            {showCurrentTime && (
+                                            {/* הצגת תור - רק בתחילת התור */}
+                                            {appointment && isStart && (
                                                 <div
-                                                    className="absolute left-0 right-0 h-0.5 bg-red-500 z-20 shadow-sm"
-                                                    style={{ top: `${timePosition.percentage}%` }}
+                                                    className={`
+                            absolute inset-x-1 inset-y-0 rounded px-1 py-1 text-xs font-medium cursor-pointer z-10
+                            ${appointment.status === 'confirmed'
+                                                            ? 'bg-green-200 text-green-800 border border-green-300'
+                                                            : appointment.status === 'pending'
+                                                                ? 'bg-yellow-200 text-yellow-800 border border-yellow-300'
+                                                                : appointment.status === 'declined'
+                                                                    ? 'bg-red-200 text-red-800 border border-red-300'
+                                                                    : appointment.status === 'cancelled'
+                                                                        ? 'bg-gray-200 text-gray-800 border border-gray-300'
+                                                                        : 'bg-blue-200 text-blue-800 border border-blue-300'
+                                                        }
+                          `}
+                                                    style={{
+                                                        height: `${Math.ceil(getAppointmentDuration(appointment) / 15) * 16}px`,
+                                                        minHeight: '32px'
+                                                    }}
                                                 >
-                                                    <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full shadow-sm"></div>
-                                                    <div className="absolute -left-16 -top-3 bg-red-500 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
-                                                        {currentTime.toLocaleTimeString('he-IL', {
-                                                            hour: '2-digit',
-                                                            minute: '2-digit',
-                                                            hour12: false
-                                                        })}
+                                                    <div className="truncate font-semibold text-xs">{appointment.client_name}</div>
+                                                    <div className="truncate text-xs opacity-75">
+                                                        {appointment.time.substring(0, 5)}
                                                     </div>
-                                                </div>
-                                            )}
-
-                                            {appointment && (
-                                                <div className={`
-                                                    text-xs p-1 rounded h-full overflow-hidden
-                                                    ${appointment.status === 'confirmed' ? 'bg-green-200 text-green-800' :
-                                                        appointment.status === 'pending' ? 'bg-yellow-200 text-yellow-800' :
-                                                            appointment.status === 'declined' ? 'bg-red-200 text-red-800' :
-                                                                'bg-gray-200 text-gray-800'}
-                                                `}>
-                                                    <div className="font-medium truncate">{appointment.client_name}</div>
-                                                    {appointment.service_id && (
-                                                        <div className="truncate opacity-75">
+                                                    {services.find(s => s.id === appointment.service_id)?.name && (
+                                                        <div className="truncate text-xs opacity-60">
                                                             {services.find(s => s.id === appointment.service_id)?.name}
                                                         </div>
                                                     )}
+                                                </div>
+                                            )}
+
+                                            {/* הצגת זמן בהובר - רק אם אין תור */}
+                                            {!appointment && (
+                                                <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                                    <span className="text-xs text-gray-600 bg-white px-1 py-0.5 rounded shadow-sm">
+                                                        {slot.time}
+                                                    </span>
                                                 </div>
                                             )}
                                         </div>
                                     );
                                 })}
                             </div>
-                        );
-                    })}
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>
@@ -818,7 +1025,7 @@ const WeekView = ({
 };
 
 // ===================================
-// 💼 Work Days View Component
+// 💼 Work Days View Component - גרסה משופרת
 // ===================================
 
 interface WorkDaysViewProps {
@@ -826,8 +1033,6 @@ interface WorkDaysViewProps {
     appointments: Appointment[];
     availability: Availability[];
     services: Service[];
-    currentTime: Date;
-    getCurrentTimePosition: (timeSlot: string) => { showLine: boolean; percentage: number };  // 👈 הוסף את זה
     onCreateAppointment?: (date: string, time: string) => void;
     onEditAppointment?: (appointment: Appointment) => void;
     onUpdateStatus?: (appointmentId: string, status: 'confirmed' | 'declined') => void;
@@ -838,43 +1043,98 @@ const WorkDaysView = ({
     appointments,
     availability,
     services,
-    currentTime,
-    getCurrentTimePosition,
     onCreateAppointment,
     onEditAppointment,
     onUpdateStatus
 }: WorkDaysViewProps) => {
-    const workDaysData = useMemo(() => {
-        const workDays = availability
+    const [currentTime, setCurrentTime] = useState(new Date());
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const timeColumnRef = useRef<HTMLDivElement>(null);
+
+    // עדכון זמן נוכחי כל דקה
+    useEffect(() => {
+        const updateCurrentTime = () => setCurrentTime(new Date());
+        updateCurrentTime();
+
+        const timer = setInterval(updateCurrentTime, 60000);
+        return () => clearInterval(timer);
+    }, []);
+
+    // סנכרון גלילה בין התוכן לעמודת השעות
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        if (timeColumnRef.current) {
+            timeColumnRef.current.scrollTop = e.currentTarget.scrollTop;
+        }
+    };
+
+    // גלילה לשעה הנוכחית
+    useEffect(() => {
+        if (!scrollContainerRef.current) return;
+
+        const now = new Date();
+        const currentHour = now.getHours();
+        const scrollToHour = Math.max(0, currentHour - 2);
+
+        // כל שעה = 64px (4 רבעי שעה × 16px)
+        const scrollPosition = scrollToHour * 64;
+
+        setTimeout(() => {
+            scrollContainerRef.current?.scrollTo({
+                top: scrollPosition,
+                behavior: 'smooth'
+            });
+        }, 300);
+    }, [currentDate]);
+
+    // קבלת ימי העבודה בלבד
+    const workDays = useMemo(() => {
+        // מציאת ימי העבודה הפעילים
+        const activeDays = availability
             .filter(avail => avail.is_active)
             .map(avail => avail.day_of_week)
-            .filter((value, index, self) => self.indexOf(value) === index)
-            .sort();
+            .filter((value, index, self) => self.indexOf(value) === index) // הסרת כפילויות
+            .sort(); // מיון מיום ראשון לשבת
 
-        if (workDays.length === 0) return [];
+        if (activeDays.length === 0) return [];
 
-        const weekStart = getWeekStart(currentDate);
-        return workDays.map(dayOfWeek => {
-            const day = new Date(weekStart);
-            day.setDate(weekStart.getDate() + dayOfWeek);
+        // חישוב תחילת השבוע
+        const startOfWeek = new Date(currentDate);
+        startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
+
+        // יצירת התאריכים לימי העבודה
+        return activeDays.map(dayOfWeek => {
+            const day = new Date(startOfWeek);
+            day.setDate(startOfWeek.getDate() + dayOfWeek);
             return day;
         });
     }, [currentDate, availability]);
 
+    // יצירת כל רבעי השעה (0:00-23:45)
     const timeSlots = useMemo(() => {
         const slots = [];
-        for (let hour = 0; hour <= 23; hour++) {
-            slots.push(`${hour.toString().padStart(2, '0')}:00`);
+        for (let hour = 0; hour < 24; hour++) {
+            for (let quarter = 0; quarter < 4; quarter++) {
+                const minutes = quarter * 15;
+                const timeStr = `${hour.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                slots.push({
+                    time: timeStr,
+                    hour,
+                    quarter,
+                    isHourStart: quarter === 0
+                });
+            }
         }
         return slots;
     }, []);
 
+    // קבלת תורים ליום ספציפי
     const getDayAppointments = (date: Date) => {
         const dateStr = date.toISOString().split('T')[0];
         return appointments.filter(apt => apt.date === dateStr);
     };
 
-    const isDayAvailable = (date: Date, time: string) => {
+    // בדיקה אם זמן זמין ביום ספציפי
+    const isTimeAvailable = (date: Date, time: string) => {
         const dayOfWeek = date.getDay();
         const [hour, minute] = time.split(':').map(Number);
         const timeMinutes = hour * 60 + minute;
@@ -891,112 +1151,210 @@ const WorkDaysView = ({
         });
     };
 
-    const weekDays = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+    // חישוב משך התור לפי השירות
+    const getAppointmentDuration = (appointment: Appointment): number => {
+        const service = services.find(s => s.id === appointment.service_id);
+        return service?.duration_minutes || 60;
+    };
 
-    if (workDaysData.length === 0) {
+    // חישוב אילו רבעי שעה התור תופס
+    const getAppointmentSlots = (appointment: Appointment) => {
+        const [hour, minute] = appointment.time.split(':').map(Number);
+        const startMinutes = hour * 60 + minute;
+        const duration = getAppointmentDuration(appointment);
+        const endMinutes = startMinutes + duration;
+
+        const occupiedSlots = [];
+        for (let currentMinutes = startMinutes; currentMinutes < endMinutes; currentMinutes += 15) {
+            const slotHour = Math.floor(currentMinutes / 60);
+            const slotMinute = currentMinutes % 60;
+            const slotTime = `${slotHour.toString().padStart(2, '0')}:${slotMinute.toString().padStart(2, '0')}`;
+            occupiedSlots.push(slotTime);
+        }
+
+        return occupiedSlots;
+    };
+
+    // מציאת תור בזמן ספציפי ביום ספציפי
+    const findAppointmentAtTime = (date: Date, time: string) => {
+        const dayAppointments = getDayAppointments(date);
+        return dayAppointments.find(apt => {
+            const occupiedSlots = getAppointmentSlots(apt);
+            return occupiedSlots.includes(time);
+        });
+    };
+
+    // בדיקה אם זה תחילת התור
+    const isAppointmentStart = (appointment: Appointment, time: string) => {
+        return appointment.time.substring(0, 5) === time;
+    };
+
+    // חישוב מיקום הקו האדום (רק לימי היום)
+    const getCurrentTimePosition = () => {
+        const now = currentTime;
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+
+        const totalMinutes = hours * 60 + minutes;
+        return (totalMinutes / 60) * 64;
+    };
+
+    const isToday = (date: Date) => date.toDateString() === new Date().toDateString();
+    const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+
+    // אם אין ימי עבודה מוגדרים
+    if (workDays.length === 0) {
         return (
-            <div className="p-6 text-center">
-                <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">אין ימי עבודה מוגדרים</h3>
-                <p className="text-gray-500">הגדר ימי עבודה כדי לראות את התצוגה</p>
+            <div className="h-[600px] bg-white rounded-lg border border-gray-200 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <span className="text-2xl">📅</span>
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">אין ימי עבודה מוגדרים</h3>
+                    <p className="text-gray-500">הגדר ימי עבודה בהגדרות הזמינות כדי לראות את התצוגה</p>
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col h-[500px] overflow-hidden">
-            {/* Work Days Header */}
-            <div className="flex border-b border-gray-200">
-                <div className="w-20 p-4 text-center text-sm font-medium text-gray-500">שעה</div>
-                {workDaysData.map((date, index) => (
-                    <div key={index} className="flex-1 p-4 text-center border-l border-gray-200">
-                        <div className="text-sm font-medium text-gray-600">{weekDays[date.getDay()]}</div>
-                        <div className={`text-lg font-bold ${isToday(date) ? 'text-blue-600' : 'text-gray-900'}`}>
-                            {date.getDate()}
+        <div className="h-[600px] bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col">
+            {/* כותרת ימי העבודה */}
+            <div className="border-b border-gray-200 bg-gray-50">
+                <div className="flex">
+                    {/* תא ריק עבור עמודת השעות */}
+                    <div className="w-16 p-2 border-l border-gray-200"></div>
+
+                    {/* כותרות ימי העבודה */}
+                    {workDays.map((date, index) => (
+                        <div key={index} className="flex-1 p-2 text-center border-l border-gray-200">
+                            <div className="text-xs font-medium text-gray-600 mb-1">
+                                {dayNames[date.getDay()]}
+                            </div>
+                            <div className={`text-sm font-bold ${isToday(date) ? 'text-blue-600' : 'text-gray-900'}`}>
+                                {date.getDate()}.{date.getMonth() + 1}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                                {getDayAppointments(date).length} תורים
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    ))}
+                </div>
             </div>
 
-            {/* Time Slots */}
-            <div className="flex-1 overflow-y-auto">
-                <div className="flex">
-                    {/* Time Column */}
-                    <div className="w-20">
-                        {timeSlots.map((time) => (
-                            <div key={time} className="h-12 p-2 text-xs text-gray-500 border-b border-gray-100">
-                                {time}
-                            </div>
-                        ))}
-                    </div>
+            {/* תוכן ימי העבודה */}
+            <div className="flex flex-row-reverse flex-1 overflow-hidden">
+                {/* עמודת שעות - מימין */}
+                <div
+                    ref={timeColumnRef}
+                    className="w-16 border-l border-gray-200 bg-gray-50 overflow-y-auto order-2"
+                    style={{ overflowY: 'hidden' }}
+                >
+                    {Array.from({ length: 24 }, (_, hour) => (
+                        <div
+                            key={hour}
+                            className="h-16 flex items-start justify-center pt-1 border-b border-gray-100"
+                        >
+                            <span className="text-xs text-gray-500 font-mono">
+                                {hour.toString().padStart(2, '0')}:00
+                            </span>
+                        </div>
+                    ))}
+                </div>
 
-                    {/* Work Days Columns */}
-                    {workDaysData.map((date, dayIndex) => {
-                        const dayAppointments = getDayAppointments(date);
+                {/* תוכן הימים - משמאל */}
+                <div
+                    ref={scrollContainerRef}
+                    onScroll={handleScroll}
+                    className="flex-1 overflow-y-auto relative order-1"
+                >
+                    <div className="flex">
+                        {workDays.map((date, dayIndex) => (
+                            <div key={dayIndex} className="flex-1 border-l border-gray-200 relative">
+                                {/* קו השעה הנוכחית - רק לימי היום */}
+                                {isToday(date) && (
+                                    <div
+                                        className="absolute left-0 right-0 h-0.5 bg-red-500 z-20"
+                                        style={{ top: `${getCurrentTimePosition()}px` }}
+                                    >
+                                        <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full"></div>
+                                    </div>
+                                )}
 
-                        return (
-                            <div key={dayIndex} className="flex-1 border-l border-gray-200">
-                                {timeSlots.map((time) => {
-                                    const isAvailable = isDayAvailable(date, time);
-                                    const appointment = dayAppointments.find(apt => apt.time === time);
+                                {/* רבעי השעות ליום */}
+                                {timeSlots.map((slot, slotIndex) => {
+                                    const isAvailable = isTimeAvailable(date, slot.time);
+                                    const appointment = findAppointmentAtTime(date, slot.time);
+                                    const isStart = appointment && isAppointmentStart(appointment, slot.time);
                                     const dateStr = date.toISOString().split('T')[0];
-                                    const timePosition = getCurrentTimePosition(time);
-                                    const showCurrentTime = isToday(date) && timePosition.showLine;
 
                                     return (
                                         <div
-                                            key={time}
+                                            key={`${dayIndex}-${slotIndex}`}
                                             onClick={() => {
-                                                if (appointment) {
+                                                if (appointment && isStart) {
                                                     onEditAppointment?.(appointment);
-                                                } else if (isAvailable && onCreateAppointment) {
-                                                    onCreateAppointment(dateStr, time);
+                                                } else if (!appointment && onCreateAppointment) {
+                                                    onCreateAppointment(dateStr, slot.time);
                                                 }
                                             }}
                                             className={`
-                                                h-12 p-1 border-b border-gray-100 cursor-pointer transition-colors
-                                                ${isAvailable ? 'bg-green-50 hover:bg-green-100' : 'bg-gray-50'}
-                                                ${appointment ? 'bg-blue-100 hover:bg-blue-200' : ''}
-                                            `}
+                        h-4 border-b border-gray-100 cursor-pointer transition-colors relative
+                        ${slot.isHourStart ? 'border-t border-gray-200' : ''}
+                        ${isAvailable
+                                                    ? 'bg-white hover:bg-green-50'
+                                                    : 'bg-gray-50 hover:bg-gray-100'
+                                                }
+                        ${appointment ? 'bg-blue-50' : ''}
+                      `}
                                         >
-                                            {/* 👇 הקו האדום */}
-                                            {showCurrentTime && (
+                                            {/* הצגת תור - רק בתחילת התור */}
+                                            {appointment && isStart && (
                                                 <div
-                                                    className="absolute left-0 right-0 h-0.5 bg-red-500 z-20 shadow-sm"
-                                                    style={{ top: `${timePosition.percentage}%` }}
+                                                    className={`
+                            absolute inset-x-1 inset-y-0 rounded px-1 py-1 text-xs font-medium cursor-pointer z-10
+                            ${appointment.status === 'confirmed'
+                                                            ? 'bg-green-200 text-green-800 border border-green-300'
+                                                            : appointment.status === 'pending'
+                                                                ? 'bg-yellow-200 text-yellow-800 border border-yellow-300'
+                                                                : appointment.status === 'declined'
+                                                                    ? 'bg-red-200 text-red-800 border border-red-300'
+                                                                    : appointment.status === 'cancelled'
+                                                                        ? 'bg-gray-200 text-gray-800 border border-gray-300'
+                                                                        : 'bg-blue-200 text-blue-800 border border-blue-300'
+                                                        }
+                          `}
+                                                    style={{
+                                                        height: `${Math.ceil(getAppointmentDuration(appointment) / 15) * 16}px`,
+                                                        minHeight: '32px'
+                                                    }}
                                                 >
-                                                    <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full shadow-sm"></div>
-                                                    <div className="absolute -left-16 -top-3 bg-red-500 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
-                                                        {currentTime.toLocaleTimeString('he-IL', {
-                                                            hour: '2-digit',
-                                                            minute: '2-digit',
-                                                            hour12: false
-                                                        })}
+                                                    <div className="truncate font-semibold text-xs">{appointment.client_name}</div>
+                                                    <div className="truncate text-xs opacity-75">
+                                                        {appointment.time.substring(0, 5)}
                                                     </div>
-                                                </div>
-                                            )}
-                                            {appointment && (
-                                                <div className={`
-                                                    text-xs p-1 rounded h-full overflow-hidden
-                                                    ${appointment.status === 'confirmed' ? 'bg-green-200 text-green-800' :
-                                                        appointment.status === 'pending' ? 'bg-yellow-200 text-yellow-800' :
-                                                            appointment.status === 'declined' ? 'bg-red-200 text-red-800' :
-                                                                'bg-gray-200 text-gray-800'}
-                                                `}>
-                                                    <div className="font-medium truncate">{appointment.client_name}</div>
-                                                    {appointment.service_id && (
-                                                        <div className="truncate opacity-75">
+                                                    {services.find(s => s.id === appointment.service_id)?.name && (
+                                                        <div className="truncate text-xs opacity-60">
                                                             {services.find(s => s.id === appointment.service_id)?.name}
                                                         </div>
                                                     )}
+                                                </div>
+                                            )}
+
+                                            {/* הצגת זמן בהובר - רק אם אין תור */}
+                                            {!appointment && (
+                                                <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                                    <span className="text-xs text-gray-600 bg-white px-1 py-0.5 rounded shadow-sm">
+                                                        {slot.time}
+                                                    </span>
                                                 </div>
                                             )}
                                         </div>
                                     );
                                 })}
                             </div>
-                        );
-                    })}
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>
@@ -1023,34 +1381,16 @@ const AgendaView = ({
     onUpdateStatus
 }: AgendaViewProps) => {
     const agendaData = useMemo(() => {
-        // Get appointments for the next 7 days
-        const today = new Date();
-        const weekFromNow = new Date();
-        weekFromNow.setDate(today.getDate() + 7);
+        // במקום 7 ימים, תציג רק את התורים של התאריך הנוכחי
+        const todayStr = currentDate.toISOString().split('T')[0];
 
-        const upcomingAppointments = appointments
-            .filter(apt => {
-                const aptDate = new Date(apt.date);
-                return aptDate >= today && aptDate <= weekFromNow;
-            })
-            .sort((a, b) => {
-                const dateA = new Date(`${a.date}T${a.time}`);
-                const dateB = new Date(`${b.date}T${b.time}`);
-                return dateA.getTime() - dateB.getTime();
-            });
+        const todayAppointments = appointments
+            .filter(apt => apt.date === todayStr)
+            .sort((a, b) => a.time.localeCompare(b.time));
 
-        // Group by date
-        const groupedByDate = upcomingAppointments.reduce((groups, apt) => {
-            const date = apt.date;
-            if (!groups[date]) {
-                groups[date] = [];
-            }
-            groups[date].push(apt);
-            return groups;
-        }, {} as Record<string, Appointment[]>);
-
-        return groupedByDate;
-    }, [appointments]);
+        // החזר מבנה פשוט של תורים ליום
+        return todayStr ? { [todayStr]: todayAppointments } : {};
+    }, [appointments, currentDate]);
 
     const formatDate = (dateStr: string) => {
         const date = new Date(dateStr);
@@ -1058,25 +1398,29 @@ const AgendaView = ({
         const tomorrow = new Date();
         tomorrow.setDate(today.getDate() + 1);
 
+        const dayAndDate = date.toLocaleDateString('he-IL', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long'
+        });
+
         if (date.toDateString() === today.toDateString()) {
-            return 'היום';
+            return <><strong>היום</strong> {dayAndDate}</>;
         } else if (date.toDateString() === tomorrow.toDateString()) {
-            return 'מחר';
+            return <><strong>מחר</strong> {dayAndDate}</>;
         } else {
-            return date.toLocaleDateString('he-IL', {
-                weekday: 'long',
-                day: 'numeric',
-                month: 'long'
-            });
+            return dayAndDate;
         }
     };
 
     const getTotalAppointments = () => {
-        return Object.values(agendaData).flat().length;
+        const todayStr = currentDate.toISOString().split('T')[0];
+        return agendaData[todayStr]?.length || 0;
     };
 
     const getPendingCount = () => {
-        return Object.values(agendaData).flat().filter(apt => apt.status === 'pending').length;
+        const todayStr = currentDate.toISOString().split('T')[0];
+        return agendaData[todayStr]?.filter(apt => apt.status === 'pending').length || 0;
     };
 
     return (
@@ -1086,13 +1430,9 @@ const AgendaView = ({
                 <div className="mb-6 p-4 bg-gray-50 rounded-xl">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h4 className="font-semibold text-gray-900">סדר יום - 7 הימים הקרובים</h4>
-                            <p className="text-sm text-gray-600 mt-1">
-                                {getTotalAppointments()} תורים מתוכננים
-                                {getPendingCount() > 0 && (
-                                    <span className="text-yellow-600"> • {getPendingCount()} ממתינים לאישור</span>
-                                )}
-                            </p>
+                            <h4 className="font-semibold text-gray-900">
+                                {formatDate(currentDate.toISOString().split('T')[0])}
+                            </h4>
                         </div>
                         <div className="flex items-center gap-4">
                             <div className="text-center">
@@ -1119,104 +1459,92 @@ const AgendaView = ({
                 ) : (
                     <div className="space-y-6">
                         {Object.entries(agendaData).map(([date, dateAppointments]) => (
-                            <div key={date} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                                {/* Date Header */}
-                                <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
-                                    <div className="flex items-center justify-between">
-                                        <h5 className="font-semibold text-gray-900">{formatDate(date)}</h5>
-                                        <span className="text-sm text-gray-500">
-                                            {dateAppointments.length} תורים
-                                        </span>
-                                    </div>
-                                </div>
-
+                            <div key={date} className="space-y-2">
                                 {/* Appointments List */}
-                                <div className="divide-y divide-gray-200">
-                                    {dateAppointments.map((appointment) => {
-                                        const service = services.find(s => s.id === appointment.service_id);
+                                {dateAppointments.map((appointment) => {
+                                    const service = services.find(s => s.id === appointment.service_id);
 
-                                        return (
-                                            <div
-                                                key={appointment.id}
-                                                onClick={() => onEditAppointment?.(appointment)}
-                                                className="p-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-4">
-                                                        {/* Time */}
-                                                        <div className="flex items-center gap-2">
-                                                            <Clock className="w-4 h-4 text-gray-400" />
-                                                            <span className="font-medium text-gray-900">{appointment.time}</span>
-                                                        </div>
-
-                                                        {/* Client Info */}
-                                                        <div>
-                                                            <div className="font-medium text-gray-900">{appointment.client_name}</div>
-                                                            <div className="text-sm text-gray-600 flex items-center gap-2">
-                                                                <Phone className="w-3 h-3" />
-                                                                {appointment.client_phone}
-                                                                {service && (
-                                                                    <>
-                                                                        <span>•</span>
-                                                                        <span>{service.name}</span>
-                                                                    </>
-                                                                )}
-                                                            </div>
-                                                        </div>
+                                    return (
+                                        <div
+                                            key={appointment.id}
+                                            onClick={() => onEditAppointment?.(appointment)}
+                                            className="p-4 bg-white rounded-xl border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors"
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-4">
+                                                    {/* Time */}
+                                                    <div className="flex items-center gap-2">
+                                                        <Clock className="w-4 h-4 text-gray-400" />
+                                                        <span className="font-medium text-gray-900">{appointment.time}</span>
                                                     </div>
 
-                                                    {/* Status and Actions */}
-                                                    <div className="flex items-center gap-3">
-                                                        <span className={`
-                              px-3 py-1 text-xs font-medium rounded-full
-                              ${appointment.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                                                                appointment.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                                                                    appointment.status === 'declined' ? 'bg-red-100 text-red-700' :
-                                                                        'bg-gray-100 text-gray-700'}
-                            `}>
-                                                            {appointment.status === 'confirmed' ? 'אושר' :
-                                                                appointment.status === 'pending' ? 'ממתין' :
-                                                                    appointment.status === 'declined' ? 'נדחה' : 'בוטל'}
-                                                        </span>
-
-                                                        {appointment.status === 'pending' && onUpdateStatus && (
-                                                            <div className="flex items-center gap-1">
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        onUpdateStatus(appointment.id, 'confirmed');
-                                                                    }}
-                                                                    className="p-1 text-green-600 hover:bg-green-100 rounded-md transition-colors"
-                                                                    title="אשר תור"
-                                                                >
-                                                                    <CheckCircle className="w-4 h-4" />
-                                                                </button>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        onUpdateStatus(appointment.id, 'declined');
-                                                                    }}
-                                                                    className="p-1 text-red-600 hover:bg-red-100 rounded-md transition-colors"
-                                                                    title="דחה תור"
-                                                                >
-                                                                    <X className="w-4 h-4" />
-                                                                </button>
-                                                            </div>
-                                                        )}
+                                                    {/* Client Info */}
+                                                    <div>
+                                                        <div className="font-medium text-gray-900">{appointment.client_name}</div>
+                                                        <div className="text-sm text-gray-600 flex items-center gap-2">
+                                                            <Phone className="w-3 h-3" />
+                                                            {appointment.client_phone}
+                                                            {service && (
+                                                                <>
+                                                                    <span>•</span>
+                                                                    <span>{service.name}</span>
+                                                                </>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
 
-                                                {/* Note */}
-                                                {appointment.note && (
-                                                    <div className="mt-2 text-sm text-gray-600 flex items-start gap-2">
-                                                        <MessageCircle className="w-3 h-3 mt-0.5 text-gray-400" />
-                                                        <span>{appointment.note}</span>
-                                                    </div>
-                                                )}
+                                                {/* Status and Actions */}
+                                                <div className="flex items-center gap-3">
+                                                    <span className={`
+                                                            px-3 py-1 text-xs font-medium rounded-full
+                                                            ${appointment.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                                                            appointment.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                                                appointment.status === 'declined' ? 'bg-red-100 text-red-700' :
+                                                                    'bg-gray-100 text-gray-700'}
+                                                    `}>
+                                                        {appointment.status === 'confirmed' ? 'אושר' :
+                                                            appointment.status === 'pending' ? 'ממתין' :
+                                                                appointment.status === 'declined' ? 'נדחה' : 'בוטל'}
+                                                    </span>
+
+                                                    {appointment.status === 'pending' && onUpdateStatus && (
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    onUpdateStatus(appointment.id, 'confirmed');
+                                                                }}
+                                                                className="p-1 text-green-600 hover:bg-green-100 rounded-md transition-colors"
+                                                                title="אשר תור"
+                                                            >
+                                                                <CheckCircle className="w-4 h-4" />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    onUpdateStatus(appointment.id, 'declined');
+                                                                }}
+                                                                className="p-1 text-red-600 hover:bg-red-100 rounded-md transition-colors"
+                                                                title="דחה תור"
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        );
-                                    })}
-                                </div>
+
+                                            {/* Note */}
+                                            {appointment.note && (
+                                                <div className="mt-2 text-sm text-gray-600 flex items-start gap-2">
+                                                    <MessageCircle className="w-3 h-3 mt-0.5 text-gray-400" />
+                                                    <span>{appointment.note}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         ))}
                     </div>
@@ -1415,7 +1743,7 @@ const isToday = (date: Date) => {
 }
 
 // ===================================
-// 📋 Day View Component  
+// 📋 Day View Component - גרסה משופרת
 // ===================================
 
 interface DayViewProps {
@@ -1437,20 +1765,71 @@ const DayView = ({
     onEditAppointment,
     onUpdateStatus
 }: DayViewProps) => {
+    const [currentTime, setCurrentTime] = useState(new Date());
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const timeColumnRef = useRef<HTMLDivElement>(null);
+
+    // עדכון זמן נוכחי כל דקה
+    useEffect(() => {
+        const updateCurrentTime = () => setCurrentTime(new Date());
+        updateCurrentTime();
+
+        const timer = setInterval(updateCurrentTime, 60000);
+        return () => clearInterval(timer);
+    }, []);
+
+    // סנכרון גלילה בין התוכן לעמודת השעות
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        if (timeColumnRef.current) {
+            timeColumnRef.current.scrollTop = e.currentTarget.scrollTop;
+        }
+    };
+
+    // גלילה לשעה הנוכחית
+    useEffect(() => {
+        if (!scrollContainerRef.current) return;
+
+        const now = new Date();
+        const currentHour = now.getHours();
+        const scrollToHour = Math.max(0, currentHour - 2);
+
+        // כל שעה = 64px (4 רבעי שעה × 16px)
+        const scrollPosition = scrollToHour * 64;
+
+        setTimeout(() => {
+            scrollContainerRef.current?.scrollTo({
+                top: scrollPosition,
+                behavior: 'smooth'
+            });
+        }, 300);
+    }, [currentDate]);
+
+    // יצירת כל רבעי השעה (0:00-23:45)
     const timeSlots = useMemo(() => {
         const slots = [];
-        for (let hour = 0; hour <= 23; hour++) {
-            slots.push(`${hour.toString().padStart(2, '0')}:00`);
+        for (let hour = 0; hour < 24; hour++) {
+            for (let quarter = 0; quarter < 4; quarter++) {
+                const minutes = quarter * 15;
+                const timeStr = `${hour.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                slots.push({
+                    time: timeStr,
+                    hour,
+                    quarter,
+                    isHourStart: quarter === 0
+                });
+            }
         }
         return slots;
     }, []);
 
+    // סינון תורים ליום הנוכחי
     const dayAppointments = useMemo(() => {
         const dateStr = currentDate.toISOString().split('T')[0];
         return appointments.filter(apt => apt.date === dateStr);
     }, [appointments, currentDate]);
 
-    const isDayAvailable = (time: string) => {
+    // בדיקה אם זמן זמין
+    const isTimeAvailable = (time: string) => {
         const dayOfWeek = currentDate.getDay();
         const [hour, minute] = time.split(':').map(Number);
         const timeMinutes = hour * 60 + minute;
@@ -1467,110 +1846,186 @@ const DayView = ({
         });
     };
 
+    // חישוב משך התור לפי השירות
+    const getAppointmentDuration = (appointment: Appointment): number => {
+        const service = services.find(s => s.id === appointment.service_id);
+        return service?.duration_minutes || 60; // ברירת מחדל 60 דקות
+    };
+
+    // חישוב אילו רבעי שעה התור תופס
+    const getAppointmentSlots = (appointment: Appointment) => {
+        const [hour, minute] = appointment.time.split(':').map(Number);
+        const startMinutes = hour * 60 + minute;
+        const duration = getAppointmentDuration(appointment);
+        const endMinutes = startMinutes + duration;
+
+        const occupiedSlots = [];
+        for (let currentMinutes = startMinutes; currentMinutes < endMinutes; currentMinutes += 15) {
+            const slotHour = Math.floor(currentMinutes / 60);
+            const slotMinute = currentMinutes % 60;
+            const slotTime = `${slotHour.toString().padStart(2, '0')}:${slotMinute.toString().padStart(2, '0')}`;
+            occupiedSlots.push(slotTime);
+        }
+
+        return occupiedSlots;
+    };
+
+    // מציאת תור בזמן ספציפי
+    const findAppointmentAtTime = (time: string) => {
+        return dayAppointments.find(apt => {
+            const occupiedSlots = getAppointmentSlots(apt);
+            return occupiedSlots.includes(time);
+        });
+    };
+
+    // בדיקה אם זה תחילת התור
+    const isAppointmentStart = (appointment: Appointment, time: string) => {
+        return appointment.time.substring(0, 5) === time;
+    };
+
+    // חישוב מיקום הקו האדום
+    const getCurrentTimePosition = () => {
+        const now = currentTime;
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+
+        // כל שעה = 64px, כל דקה = 64/60 px
+        const totalMinutes = hours * 60 + minutes;
+        return (totalMinutes / 60) * 64;
+    };
+
+    const isToday = currentDate.toDateString() === new Date().toDateString();
     const dateStr = currentDate.toISOString().split('T')[0];
 
     return (
-        <div className="p-6">
-            <div className="max-w-2xl mx-auto">
-                {/* Day Header */}
-                <div className="mb-6 text-center">
-                    <h4 className="text-lg font-semibold text-gray-900">
-                        {currentDate.toLocaleDateString('he-IL', {
-                            weekday: 'long',
-                            day: 'numeric',
-                            month: 'long'
-                        })}
-                    </h4>
-                    <p className="text-sm text-gray-500 mt-1">
-                        {dayAppointments.length} תורים מתוכננים
-                    </p>
-                </div>
+        <div className="h-[600px] bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col">
+            {/* כותרת באמצע */}
+            <div className="border-b border-gray-200 p-4 bg-gray-50 text-center">
+                <h3 className={`text-lg font-semibold ${isToday ? 'text-blue-600' : 'text-gray-900'}`}>
+                    {currentDate.toLocaleDateString('he-IL', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long'
+                    })}
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                    {dayAppointments.length} תורים מתוכננים
+                </p>
+            </div>
 
-                {/* Time Slots */}
-                <div className="space-y-1 max-h-96 overflow-y-auto">
-                    {timeSlots.map((time) => {
-                        const isAvailable = isDayAvailable(time);
-                        const appointment = dayAppointments.find(apt => apt.time === time);
-                        const service = appointment ? services.find(s => s.id === appointment.service_id) : null;
+            {/* תוכן ראשי */}
+            <div className="flex flex-row-reverse flex-1 overflow-hidden">
+                {/* תוכן התורים - משמאל */}
+                <div
+                    ref={scrollContainerRef}
+                    onScroll={handleScroll}
+                    className="flex-1 overflow-y-auto relative bg-white order-1"
+                >
+                    {/* קו השעה הנוכחית */}
+                    {isToday && (
+                        <div
+                            className="absolute left-0 right-4 h-0.5 bg-red-500 z-20"
+                            style={{ top: `${getCurrentTimePosition()}px` }}
+                        >
+                            <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full"></div>
+                        </div>
+                    )}
 
-                        return (
-                            <div
-                                key={time}
-                                onClick={() => {
-                                    if (appointment) {
-                                        onEditAppointment?.(appointment);
-                                    } else if (isAvailable && onCreateAppointment) {
-                                        onCreateAppointment(dateStr, time);
-                                    }
-                                }}
-                                className={`
-                  flex items-center p-3 rounded-lg border cursor-pointer transition-all duration-200
-                  ${appointment
-                                        ? appointment.status === 'confirmed'
-                                            ? 'bg-green-50 border-green-200 hover:bg-green-100'
-                                            : appointment.status === 'pending'
-                                                ? 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100'
-                                                : appointment.status === 'declined'
-                                                    ? 'bg-red-50 border-red-200 hover:bg-red-100'
-                                                    : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
-                                        : isAvailable
-                                            ? 'bg-green-50 border-green-200 hover:bg-green-100'
-                                            : 'bg-gray-50 border-gray-200 opacity-50 cursor-not-allowed'
-                                    }
-                `}
-                            >
-                                {/* Time */}
-                                <div className="w-16 text-sm font-medium text-gray-600">
-                                    {time}
-                                </div>
+                    {/* רבעי השעות */}
+                    <div className="relative">
+                        {timeSlots.map((slot, index) => {
+                            const isAvailable = isTimeAvailable(slot.time);
+                            const appointment = findAppointmentAtTime(slot.time);
+                            const isStart = appointment && isAppointmentStart(appointment, slot.time);
 
-                                {/* Content */}
-                                <div className="flex-1">
-                                    {appointment ? (
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <div className="font-medium text-gray-900">
-                                                    {appointment.client_name}
-                                                </div>
-                                                <div className="text-sm text-gray-600">
-                                                    {service?.name || 'ללא שירות'} • {appointment.client_phone}
-                                                </div>
-                                                {appointment.note && (
-                                                    <div className="text-xs text-gray-500 mt-1">
-                                                        {appointment.note}
-                                                    </div>
-                                                )}
+                            return (
+                                <div
+                                    key={slot.time}
+                                    onClick={() => {
+                                        if (appointment && isStart) {
+                                            onEditAppointment?.(appointment);
+                                        } else if (!appointment && onCreateAppointment) {
+                                            onCreateAppointment(dateStr, slot.time);
+                                        }
+                                    }}
+                                    className={`
+                    h-4 border-b border-gray-100 cursor-pointer transition-colors relative
+                    ${slot.isHourStart ? 'border-t border-gray-200' : ''}
+                    ${isAvailable
+                                            ? 'bg-white hover:bg-green-50'
+                                            : 'bg-gray-50 hover:bg-gray-100'
+                                        }
+                    ${appointment ? 'bg-blue-50' : ''}
+                            `}
+                                >
+                                    {/* הצגת תור - רק בתחילת התור */}
+                                    {appointment && isStart && (
+                                        <div
+                                            className={`
+                            absolute inset-x-1 inset-y-0 rounded px-1 py-1 text-xs font-medium cursor-pointer z-10
+                            ${appointment.status === 'confirmed'
+                                                    ? 'bg-green-200 text-green-800 border border-green-300'
+                                                    : appointment.status === 'pending'
+                                                        ? 'bg-yellow-200 text-yellow-800 border border-yellow-300'
+                                                        : appointment.status === 'declined'
+                                                            ? 'bg-red-200 text-red-800 border border-red-300'
+                                                            : appointment.status === 'cancelled'
+                                                                ? 'bg-gray-200 text-gray-800 border border-gray-300'
+                                                                : 'bg-blue-200 text-blue-800 border border-blue-300'
+                                                }
+                          `}
+                                            style={{
+                                                height: `${Math.ceil(getAppointmentDuration(appointment) / 15) * 16}px`,
+                                                minHeight: '48px'
+                                            }}
+                                        >
+                                            <div className="truncate font-semibold">{appointment.client_name}</div>
+                                            <div className="truncate text-xs opacity-75">
+                                                {appointment.time.substring(0, 5)}
+                                                {services.find(s => s.id === appointment.service_id)?.name &&
+                                                    ` • ${services.find(s => s.id === appointment.service_id)?.name}`
+                                                }
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className={`
-                          px-2 py-1 text-xs font-medium rounded-full
-                          ${appointment.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                                                        appointment.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                                                            appointment.status === 'declined' ? 'bg-red-100 text-red-700' :
-                                                                'bg-gray-100 text-gray-700'}
-                        `}>
-                                                    {appointment.status === 'confirmed' ? 'אושר' :
-                                                        appointment.status === 'pending' ? 'ממתין' :
-                                                            appointment.status === 'declined' ? 'נדחה' : 'בוטל'}
-                                                </span>
+                                            <div className="truncate text-xs opacity-60">
+                                                {getAppointmentDuration(appointment)} דקות
                                             </div>
                                         </div>
-                                    ) : isAvailable ? (
-                                        <div className="flex items-center gap-2 text-green-600">
-                                            <Plus className="w-4 h-4" />
-                                            <span className="text-sm">זמן פנוי - לחץ להוספת תור</span>
-                                        </div>
-                                    ) : (
-                                        <div className="text-sm text-gray-400">
-                                            לא זמין
+                                    )}
+
+                                    {/* הצגת זמן בהובר - רק אם אין תור */}
+                                    {!appointment && (
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                            <span className="text-xs text-gray-600 bg-white px-2 py-1 rounded shadow-sm">
+                                                {slot.time}
+                                            </span>
                                         </div>
                                     )}
                                 </div>
-                            </div>
-                        );
-                    })}
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* עמודת שעות - מימין */}
+                <div
+                    ref={timeColumnRef}
+                    className="w-16 border-l border-gray-200 bg-gray-50 overflow-y-auto order-2"
+                    style={{ overflowY: 'hidden' }} // מונע גלילה עצמאית
+                >
+                    {Array.from({ length: 24 }, (_, hour) => (
+                        <div
+                            key={hour}
+                            className="h-16 flex items-start justify-center pt-1 border-b border-gray-100"
+                        >
+                            <span className="text-xs text-gray-500 font-mono">
+                                {hour.toString().padStart(2, '0')}:00
+                            </span>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>
     );
 };
+
+export default DayView;

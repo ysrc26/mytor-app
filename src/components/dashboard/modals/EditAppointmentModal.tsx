@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { checkBusinessOwnerConflicts } from '@/lib/appointment-utils';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 import type { Appointment, Service } from '@/lib/types';
 
@@ -15,6 +16,7 @@ interface EditAppointmentModalProps {
   onClose: () => void;
   appointment: Appointment | null;
   services: Service[];
+  businessId: string;
   onUpdate: (appointmentId: string, data: { date?: string; time?: string; service_id?: string; note?: string }) => Promise<void>;
 }
 
@@ -31,6 +33,7 @@ export const EditAppointmentModal = ({
   isOpen,
   onClose,
   appointment,
+  businessId,
   services,
   onUpdate
 }: EditAppointmentModalProps) => {
@@ -43,6 +46,8 @@ export const EditAppointmentModal = ({
     note: ''
   });
   const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
+  // const [conflictError, setConflictError] = useState<string | null>(null);
 
   // Initialize form when appointment changes
   useEffect(() => {
@@ -63,6 +68,36 @@ export const EditAppointmentModal = ({
       ...prev,
       [field]: value
     }));
+  };
+
+  const checkForConflicts = async () => {
+    if (!appointmentForm.service_id || !appointmentForm.date || !appointmentForm.time) {
+      return false;
+    }
+
+    try {
+      setValidating(true);
+      // setConflictError(null);
+
+      const conflictCheck = await checkBusinessOwnerConflicts(
+        businessId,
+        appointmentForm.service_id,
+        appointmentForm.date,
+        appointmentForm.time
+      );
+
+      if (conflictCheck.hasConflict) {
+        showErrorToast(conflictCheck.error || 'יש חפיפה עם תור קיים');
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      showErrorToast('שגיאה בבדיקת חפיפות');
+      return true;
+    } finally {
+      setValidating(false);
+    }
   };
 
   const handleSave = async () => {
@@ -104,9 +139,18 @@ export const EditAppointmentModal = ({
       return;
     }
 
+    // Check for conflicts
+    const conflictCheck = await checkBusinessOwnerConflicts(
+      businessId,
+      appointmentForm.service_id,
+      appointmentForm.date,
+      appointmentForm.time,
+      appointment.id // ✅ חשוב! לא לכלול את התור הנוכחי בבדיקה
+    );
+
     try {
       setSaving(true);
-      
+
       // Only send changed fields
       const updates: any = {};
       if (appointmentForm.date !== appointment.date) updates.date = appointmentForm.date;
@@ -135,13 +179,13 @@ export const EditAppointmentModal = ({
     }
   };
 
-  const isAppointmentPast = appointment ? 
+  const isAppointmentPast = appointment ?
     new Date(`${appointment.date}T${appointment.time}`) < new Date() : false;
 
   if (!isOpen || !appointment) return null;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={handleOverlayClick}
     >
@@ -186,7 +230,7 @@ export const EditAppointmentModal = ({
                 <User className="w-5 h-5" />
                 פרטי הלקוח
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="client-name">שם הלקוח *</Label>
@@ -226,7 +270,7 @@ export const EditAppointmentModal = ({
                 <Calendar className="w-5 h-5" />
                 פרטי התור
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="appointment-date">תאריך *</Label>

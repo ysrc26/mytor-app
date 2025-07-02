@@ -8,12 +8,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
+import { checkBusinessOwnerConflicts } from '@/lib/appointment-utils';
 import type { Service } from '@/lib/types';
 
 interface CreateAppointmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   services: Service[];
+  businessId: string;
   onCreate: (data: {
     client_name: string;
     client_phone: string;
@@ -38,6 +40,7 @@ interface AppointmentForm {
 export const CreateAppointmentModal = ({
   isOpen,
   onClose,
+  businessId,
   services,
   onCreate,
   prefilledDate = '',
@@ -52,6 +55,8 @@ export const CreateAppointmentModal = ({
     note: ''
   });
   const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
+  // const [conflictError, setConflictError] = useState<string | null>(null);
 
   // Reset form when modal opens
   useEffect(() => {
@@ -72,6 +77,35 @@ export const CreateAppointmentModal = ({
       ...prev,
       [field]: value
     }));
+  };
+  const checkForConflicts = async () => {
+    if (!appointmentForm.service_id || !appointmentForm.date || !appointmentForm.time) {
+      return false;
+    }
+
+    try {
+      setValidating(true);
+      // setConflictError(null);
+
+      const conflictCheck = await checkBusinessOwnerConflicts(
+        businessId,
+        appointmentForm.service_id,
+        appointmentForm.date,
+        appointmentForm.time
+      );
+
+      if (conflictCheck.hasConflict) {
+        showErrorToast(conflictCheck.error || 'יש חפיפה עם תור קיים');
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      showErrorToast('שגיאה בבדיקת חפיפות');
+      return true;
+    } finally {
+      setValidating(false);
+    }
   };
 
   const handleSave = async () => {
@@ -111,9 +145,17 @@ export const CreateAppointmentModal = ({
       return;
     }
 
+    // בדיקת חפיפות לפני שמירה
+    if (appointmentForm.service_id) {
+      const hasConflict = await checkForConflicts();
+      if (hasConflict) {
+        return;
+      }
+    }
+
     try {
       setSaving(true);
-      
+
       const appointmentData = {
         client_name: appointmentForm.client_name.trim(),
         client_phone: appointmentForm.client_phone.trim(),
@@ -161,7 +203,7 @@ export const CreateAppointmentModal = ({
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={handleOverlayClick}
     >
@@ -183,6 +225,17 @@ export const CreateAppointmentModal = ({
           </div>
         </div>
 
+        {/* Conflict Error
+        {conflictError && (
+          <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center gap-2 text-red-700">
+              <AlertTriangle className="w-4 h-4" />
+              <span className="font-medium">חפיפת תורים</span>
+            </div>
+            <p className="text-red-600 text-sm mt-1">{conflictError}</p>
+          </div>
+        )} */}
+
         {/* Content */}
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
           <div className="space-y-6">
@@ -192,7 +245,7 @@ export const CreateAppointmentModal = ({
                 <User className="w-5 h-5 text-blue-600" />
                 פרטי הלקוח
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="client-name">שם הלקוח *</Label>
@@ -231,7 +284,7 @@ export const CreateAppointmentModal = ({
                 <Calendar className="w-5 h-5 text-green-600" />
                 פרטי התור
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="appointment-date">תאריך *</Label>
@@ -285,7 +338,7 @@ export const CreateAppointmentModal = ({
                         </option>
                       ))}
                     </select>
-                    
+
                     {services.length === 0 && (
                       <p className="text-sm text-gray-500 mt-1">
                         אין שירותים פעילים. ניתן להוסיף שירותים בהגדרות העסק.

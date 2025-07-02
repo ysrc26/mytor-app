@@ -442,11 +442,11 @@ export default function BusinessDashboard() {
                 <AppointmentsList
                   appointments={appointments}
                   services={services}
+                  businessId={businessId}
                   loading={appointmentsLoading}
                   onUpdateStatus={handleUpdateAppointmentStatus}
                   onEditAppointment={handleEditAppointment}
                   onDeleteAppointment={handleDeleteAppointment}
-                  businessId={businessId}
                 />
               )}
 
@@ -524,6 +524,7 @@ export default function BusinessDashboard() {
           setCreateAppointmentModalOpen(false);
           setCreateAppointmentData({});
         }}
+        businessId={businessId}
         services={services}
         onCreate={handleCreateAppointment}
         prefilledDate={createAppointmentData.date}
@@ -537,6 +538,7 @@ export default function BusinessDashboard() {
           setSelectedAppointment(null);
         }}
         appointment={editingAppointment}
+        businessId={businessId}
         services={services}
         onUpdate={handleUpdateAppointment}
       />

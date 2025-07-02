@@ -27,11 +27,11 @@ type ViewMode = 'cards' | 'table';
 export const AppointmentsList = ({
   appointments,
   services,
+  businessId,
   loading = false,
   onUpdateStatus,
   onDeleteAppointment,
   onEditAppointment,
-  businessId
 }: AppointmentsListProps) => {
   // ===================================
   // 🎯 State Management

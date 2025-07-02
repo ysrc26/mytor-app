@@ -198,6 +198,7 @@ export interface Business {
 }
 
 export interface Service {
+  color: string;
   id: string;
   business_id: string;
   name: string;

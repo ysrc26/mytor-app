@@ -9,8 +9,10 @@ import {
 } from 'lucide-react';
 import { showSuccessToast } from '@/lib/toast-utils';
 import { isToday, isPastTime, dateToLocalString } from '@/lib/calendar-utils';
+import { AppointmentPositioning, useAppointmentLayouts } from '@/lib/appointment-positioning';
 import type { Appointment, Availability, Service } from '@/lib/types';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
+import { timeUtils } from '@/lib/time-utils';
 
 interface CalendarViewProps {
     appointments: Appointment[];
@@ -310,7 +312,7 @@ const CalendarHeader = ({
     const formatHeaderDate = () => {
         // פונקציה לקבלת תחילת השבוע
         const weekStart = getWeekStart(currentDate);
-        
+
         switch (viewMode) {
             case 'month':
                 return currentDate.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
@@ -728,9 +730,9 @@ const MonthView = ({
                                                             apt.status === 'declined' ? 'bg-red-100 text-red-700' :
                                                                 'bg-gray-100 text-gray-700'}
                         `}
-                                                title={`${apt.time} - ${apt.client_name}${service ? ` (${service.name})` : ''}`}
+                                                title={`${apt.start_time} - ${apt.client_name}${service ? ` (${service.name})` : ''}`}
                                             >
-                                                {apt.time} {apt.client_name}
+                                                {apt.start_time} {apt.client_name}
                                             </div>
                                         );
                                     })}
@@ -879,7 +881,8 @@ const WeekView = ({
 
     // חישוב אילו רבעי שעה התור תופס
     const getAppointmentSlots = (appointment: Appointment) => {
-        const [hour, minute] = appointment.time.split(':').map(Number);
+        const startTime = timeUtils.extractStartTime(appointment);
+        const [hour, minute] = startTime.split(':').map(Number);
         const startMinutes = hour * 60 + minute;
         const duration = getAppointmentDuration(appointment);
         const endMinutes = startMinutes + duration;
@@ -906,7 +909,7 @@ const WeekView = ({
 
     // בדיקה אם זה תחילת התור
     const isAppointmentStart = (appointment: Appointment, time: string) => {
-        return appointment.time.substring(0, 5) === time;
+        return appointment.start_time.substring(0, 5) === time;
     };
 
     // חישוב מיקום הקו האדום (רק לימי היום)
@@ -1013,7 +1016,7 @@ const WeekView = ({
                       `}
                                         >
                                             {/* הצגת תור - רק בתחילת התור */}
-                                            {appointment && isStart && (
+                                            {/* {appointment && isStart && (
                                                 <div
                                                     className={`
                             absolute inset-x-1 inset-y-0 rounded px-1 py-1 text-xs font-medium cursor-pointer z-10
@@ -1035,7 +1038,7 @@ const WeekView = ({
                                                 >
                                                     <div className="truncate font-semibold text-xs">{appointment.client_name}</div>
                                                     <div className="truncate text-xs opacity-75">
-                                                        {appointment.time.substring(0, 5)}
+                                                        {appointment.start_time.substring(0, 5)}
                                                     </div>
                                                     {services.find(s => s.id === appointment.service_id)?.name && (
                                                         <div className="truncate text-xs opacity-60">
@@ -1043,7 +1046,59 @@ const WeekView = ({
                                                         </div>
                                                     )}
                                                 </div>
-                                            )}
+                                            )} */}
+                                            {/* הצגת תורים עם תמיכה בחפיפות */}
+                                            {(() => {
+                                                const dateStr = date.toISOString().split('T')[0];
+                                                const dayAppointments = appointments.filter(apt => apt.date === dateStr);
+                                                const appointmentLayouts = AppointmentPositioning.calculateDayLayout(dayAppointments);
+
+                                                // מציג את התור רק אם זה התחילה שלו ברבע השעה הזה
+                                                const appointmentAtThisSlot = appointmentLayouts.find(layout => {
+                                                    const startTime = timeUtils.extractStartTime(layout.appointment);
+                                                    const gridPosition = Math.floor(timeUtils.timeToMinutes(startTime) / 15);
+                                                    return gridPosition === slotIndex;
+                                                });
+
+                                                if (!appointmentAtThisSlot) return null;
+
+                                                const { appointment, left, width } = appointmentAtThisSlot;
+                                                const startTime = timeUtils.extractStartTime(appointment);
+
+                                                return (
+                                                    <div
+                                                        key={appointment.id}
+                                                        className={`
+                absolute rounded px-1 py-1 text-xs font-medium cursor-pointer z-10
+                ${appointment.status === 'confirmed'
+                                                                ? 'bg-green-200 text-green-800 border border-green-300'
+                                                                : appointment.status === 'pending'
+                                                                    ? 'bg-yellow-200 text-yellow-800 border border-yellow-300'
+                                                                    : appointment.status === 'declined'
+                                                                        ? 'bg-red-200 text-red-800 border border-red-300'
+                                                                        : 'bg-gray-200 text-gray-800 border border-gray-300'
+                                                            }
+            `}
+                                                        style={{
+                                                            left: `${left}%`,
+                                                            width: `${width}%`,
+                                                            height: `${Math.ceil(getAppointmentDuration(appointment) / 15) * 16}px`,
+                                                            minHeight: '32px'
+                                                        }}
+                                                        onClick={() => onEditAppointment?.(appointment)}
+                                                    >
+                                                        <div className="truncate font-semibold text-xs">{appointment.client_name}</div>
+                                                        <div className="truncate text-xs opacity-75">
+                                                            {startTime.substring(0, 5)}
+                                                        </div>
+                                                        {services.find(s => s.id === appointment.service_id)?.name && (
+                                                            <div className="truncate text-xs opacity-60">
+                                                                {services.find(s => s.id === appointment.service_id)?.name}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
 
                                             {/* הצגת זמן בהובר - רק אם אין תור */}
                                             {!appointment && (
@@ -1200,7 +1255,7 @@ const WorkDaysView = ({
 
     // חישוב אילו רבעי שעה התור תופס
     const getAppointmentSlots = (appointment: Appointment) => {
-        const [hour, minute] = appointment.time.split(':').map(Number);
+        const [hour, minute] = appointment.start_time.split(':').map(Number);
         const startMinutes = hour * 60 + minute;
         const duration = getAppointmentDuration(appointment);
         const endMinutes = startMinutes + duration;
@@ -1227,7 +1282,7 @@ const WorkDaysView = ({
 
     // בדיקה אם זה תחילת התור
     const isAppointmentStart = (appointment: Appointment, time: string) => {
-        return appointment.time.substring(0, 5) === time;
+        return appointment.start_time.substring(0, 5) === time;
     };
 
     // חישוב מיקום הקו האדום (רק לימי היום)
@@ -1349,7 +1404,7 @@ const WorkDaysView = ({
                       `}
                                         >
                                             {/* הצגת תור - רק בתחילת התור */}
-                                            {appointment && isStart && (
+                                            {/* {appointment && isStart && (
                                                 <div
                                                     className={`
                             absolute inset-x-1 inset-y-0 rounded px-1 py-1 text-xs font-medium cursor-pointer z-10
@@ -1371,7 +1426,7 @@ const WorkDaysView = ({
                                                 >
                                                     <div className="truncate font-semibold text-xs">{appointment.client_name}</div>
                                                     <div className="truncate text-xs opacity-75">
-                                                        {appointment.time.substring(0, 5)}
+                                                        {appointment.start_time.substring(0, 5)}
                                                     </div>
                                                     {services.find(s => s.id === appointment.service_id)?.name && (
                                                         <div className="truncate text-xs opacity-60">
@@ -1379,7 +1434,60 @@ const WorkDaysView = ({
                                                         </div>
                                                     )}
                                                 </div>
-                                            )}
+                                            )} */}
+                                            {/* הצגת תורים עם תמיכה בחפיפות */}
+                                            {/* הצגת תורים עם תמיכה בחפיפות */}
+                                            {(() => {
+                                                const dateStr = date.toISOString().split('T')[0];
+                                                const dayAppointments = appointments.filter(apt => apt.date === dateStr);
+                                                const appointmentLayouts = AppointmentPositioning.calculateDayLayout(dayAppointments);
+
+                                                // מציג את התור רק אם זה התחילה שלו ברבע השעה הזה
+                                                const appointmentAtThisSlot = appointmentLayouts.find(layout => {
+                                                    const startTime = timeUtils.extractStartTime(layout.appointment);
+                                                    const gridPosition = Math.floor(timeUtils.timeToMinutes(startTime) / 15);
+                                                    return gridPosition === slotIndex;
+                                                });
+
+                                                if (!appointmentAtThisSlot) return null;
+
+                                                const { appointment, left, width } = appointmentAtThisSlot;
+                                                const startTime = timeUtils.extractStartTime(appointment);
+
+                                                return (
+                                                    <div
+                                                        key={appointment.id}
+                                                        className={`
+                absolute rounded px-1 py-1 text-xs font-medium cursor-pointer z-10
+                ${appointment.status === 'confirmed'
+                                                                ? 'bg-green-200 text-green-800 border border-green-300'
+                                                                : appointment.status === 'pending'
+                                                                    ? 'bg-yellow-200 text-yellow-800 border border-yellow-300'
+                                                                    : appointment.status === 'declined'
+                                                                        ? 'bg-red-200 text-red-800 border border-red-300'
+                                                                        : 'bg-gray-200 text-gray-800 border border-gray-300'
+                                                            }
+            `}
+                                                        style={{
+                                                            left: `${left}%`,
+                                                            width: `${width}%`,
+                                                            height: `${Math.ceil(getAppointmentDuration(appointment) / 15) * 16}px`,
+                                                            minHeight: '32px'
+                                                        }}
+                                                        onClick={() => onEditAppointment?.(appointment)}
+                                                    >
+                                                        <div className="truncate font-semibold text-xs">{appointment.client_name}</div>
+                                                        <div className="truncate text-xs opacity-75">
+                                                            {startTime.substring(0, 5)}
+                                                        </div>
+                                                        {services.find(s => s.id === appointment.service_id)?.name && (
+                                                            <div className="truncate text-xs opacity-60">
+                                                                {services.find(s => s.id === appointment.service_id)?.name}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
 
                                             {/* הצגת זמן בהובר - רק אם אין תור */}
                                             {!appointment && (
@@ -1429,7 +1537,7 @@ const AgendaView = ({
 
         const dayAppointments = appointments
             .filter(apt => apt.date === dateStr)
-            .sort((a, b) => a.time.localeCompare(b.time));
+            .sort((a, b) => a.start_time.localeCompare(b.start_time));
 
         return dateStr ? { [dateStr]: dayAppointments } : {};
     }, [appointments, currentDate]);
@@ -1522,7 +1630,7 @@ const AgendaView = ({
                                                     {/* Time */}
                                                     <div className="flex items-center gap-2">
                                                         <Clock className="w-4 h-4 text-gray-400" />
-                                                        <span className="font-medium text-gray-900">{appointment.time}</span>
+                                                        <span className="font-medium text-gray-900">{appointment.start_time}</span>
                                                     </div>
 
                                                     {/* Client Info */}
@@ -1625,7 +1733,11 @@ const SelectedDatePanel = ({
     onClose
 }: SelectedDatePanelProps) => {
     const sortedAppointments = useMemo(() => {
-        return [...appointments].sort((a, b) => a.time.localeCompare(b.time));
+        return [...appointments].sort((a, b) => {
+            const timeA = timeUtils.extractStartTime(a);
+            const timeB = timeUtils.extractStartTime(b);
+            return timeA.localeCompare(timeB);
+        });
     }, [appointments]);
 
     const dateStr = dateToLocalString(date);
@@ -1696,7 +1808,7 @@ const SelectedDatePanel = ({
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-3">
                                                 <div className="text-sm font-medium text-gray-900">
-                                                    {appointment.time}
+                                                    {appointment.start_time}
                                                 </div>
                                                 <div>
                                                     <div className="font-medium text-gray-900">
@@ -1916,7 +2028,7 @@ const DayView = ({
 
     // חישוב אילו רבעי שעה התור תופס
     const getAppointmentSlots = (appointment: Appointment) => {
-        const [hour, minute] = appointment.time.split(':').map(Number);
+        const [hour, minute] = appointment.start_time.split(':').map(Number);
         const startMinutes = hour * 60 + minute;
         const duration = getAppointmentDuration(appointment);
         const endMinutes = startMinutes + duration;
@@ -1942,7 +2054,7 @@ const DayView = ({
 
     // בדיקה אם זה תחילת התור
     const isAppointmentStart = (appointment: Appointment, time: string) => {
-        return appointment.time.substring(0, 5) === time;
+        return appointment.start_time.substring(0, 5) === time;
     };
 
     // חישוב מיקום הקו האדום
@@ -2021,7 +2133,7 @@ const DayView = ({
                             `}
                                 >
                                     {/* הצגת תור - רק בתחילת התור */}
-                                    {appointment && isStart && (
+                                    {/* {appointment && isStart && (
                                         <div
                                             className={`
                             absolute inset-x-1 inset-y-0 rounded px-1 py-1 text-xs font-medium cursor-pointer z-10
@@ -2043,7 +2155,7 @@ const DayView = ({
                                         >
                                             <div className="truncate font-semibold">{appointment.client_name}</div>
                                             <div className="truncate text-xs opacity-75">
-                                                {appointment.time.substring(0, 5)}
+                                                {appointment.start_time.substring(0, 5)}
                                                 {services.find(s => s.id === appointment.service_id)?.name &&
                                                     ` • ${services.find(s => s.id === appointment.service_id)?.name}`
                                                 }
@@ -2052,7 +2164,56 @@ const DayView = ({
                                                 {getAppointmentDuration(appointment)} דקות
                                             </div>
                                         </div>
-                                    )}
+                                    )} */}
+                                    {/* הצגת תורים עם תמיכה בחפיפות */}
+                                    {(() => {
+                                        const dateStr = currentDate.toISOString().split('T')[0];
+                                        const dayAppointments = appointments.filter(apt => apt.date === dateStr);
+                                        const appointmentLayouts = AppointmentPositioning.calculateDayLayout(dayAppointments);
+
+                                        return appointmentLayouts
+                                            .filter(layout => {
+                                                const startTime = timeUtils.extractStartTime(layout.appointment);
+                                                const gridPosition = Math.floor(timeUtils.timeToMinutes(startTime) / 15);
+                                                return gridPosition === index; // index מהלולאה של timeSlots
+                                            })
+                                            .map(layout => {
+                                                const { appointment, left, width } = layout;
+                                                const startTime = timeUtils.extractStartTime(appointment);
+
+                                                return (
+                                                    <div
+                                                        key={appointment.id}
+                                                        className={`
+                        absolute rounded px-1 py-1 text-xs font-medium cursor-pointer z-10
+                        ${appointment.status === 'confirmed'
+                                                                ? 'bg-green-200 text-green-800 border border-green-300'
+                                                                : appointment.status === 'pending'
+                                                                    ? 'bg-yellow-200 text-yellow-800 border border-yellow-300'
+                                                                    : appointment.status === 'declined'
+                                                                        ? 'bg-red-200 text-red-800 border border-red-300'
+                                                                        : 'bg-gray-200 text-gray-800 border border-gray-300'
+                                                            }
+                    `}
+                                                        style={{
+                                                            left: `${left}%`,
+                                                            width: `${width}%`,
+                                                            height: `${Math.ceil(getAppointmentDuration(appointment) / 15) * 16}px`,
+                                                            minHeight: '48px'
+                                                        }}
+                                                        onClick={() => onEditAppointment?.(appointment)}
+                                                    >
+                                                        <div className="truncate font-semibold">{appointment.client_name}</div>
+                                                        <div className="truncate text-xs opacity-75">
+                                                            {startTime.substring(0, 5)}
+                                                            {services.find(s => s.id === appointment.service_id)?.name &&
+                                                                ` • ${services.find(s => s.id === appointment.service_id)?.name}`
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                );
+                                            });
+                                    })()}
 
                                     {/* הצגת זמן בהובר - רק אם אין תור */}
                                     {!appointment && (

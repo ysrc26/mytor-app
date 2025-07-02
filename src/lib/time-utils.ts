@@ -23,12 +23,27 @@ export const timeUtils = {
    */
   timeToMinutes: (timeStr: string): number => {
     if (!timeStr || typeof timeStr !== 'string') {
+      console.error('❌ timeToMinutes: Invalid input -', timeStr);
       throw new Error(`Invalid time string: ${timeStr}`);
+    }
+
+    // בדיקה אם זה UUID במקום זמן (למניעת באג נפוץ)
+    if (timeStr.length === 36 && timeStr.includes('-')) {
+      console.error('❌ timeToMinutes: Received UUID instead of time -', timeStr);
+      throw new Error(`Received UUID instead of time format: ${timeStr}`);
+    }
+
+    // בדיקה לפורמט זמן תקין
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])(:([0-5][0-9]))?$/;
+    if (!timeRegex.test(timeStr)) {
+      console.error('❌ timeToMinutes: Invalid time format -', timeStr);
+      throw new Error(`Invalid time format: ${timeStr}. Expected HH:MM or HH:MM:SS`);
     }
 
     const [hours, minutes] = timeStr.split(':').map(Number);
 
     if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+      console.error('❌ timeToMinutes: Invalid time values -', { timeStr, hours, minutes });
       throw new Error(`Invalid time format: ${timeStr}`);
     }
 
@@ -56,8 +71,18 @@ export const timeUtils = {
    * @returns זמן בפורמט "HH:MM"
    */
   normalizeTime: (timeStr: string): string => {
-    if (!timeStr) return '';
-    return timeStr.slice(0, 5); // חותך שניות אם יש
+    if (!timeStr || typeof timeStr !== 'string') {
+      console.warn('⚠️ normalizeTime: Empty or invalid input -', timeStr);
+      return '';
+    }
+
+    // בדיקה אם זה UUID
+    if (timeStr.length === 36 && timeStr.includes('-')) {
+      console.error('❌ normalizeTime: Received UUID instead of time -', timeStr);
+      throw new Error(`Received UUID instead of time format: ${timeStr}`);
+    }
+
+    return timeStr.slice(0, 5); // חותך את השניות אם קיימות
   },
 
   /**
@@ -113,6 +138,40 @@ export const timeUtils = {
       return false; // במקרה של שגיאה, נניח שאין חפיפה
     }
   },
+
+  /**
+   * בדיקת חפיפה בין שני טווחי זמן
+   * @param start1 - התחלה של טווח 1
+   * @param end1 - סוף של טווח 1
+   * @param start2 - התחלה של טווח 2
+   * @param end2 - סוף של טווח 2
+   * @returns true אם יש חפיפה
+   */
+  hasTimeOverlap: (
+    start1: string,
+    end1: string,
+    start2: string,
+    end2: string
+  ): boolean => {
+    try {
+      // וידוא שכל הקלטים תקינים
+      if (!start1 || !end1 || !start2 || !end2) {
+        console.error('❌ hasTimeOverlap: Missing time values', { start1, end1, start2, end2 });
+        return false;
+      }
+
+      const start1Minutes = timeUtils.timeToMinutes(timeUtils.normalizeTime(start1));
+      const end1Minutes = timeUtils.timeToMinutes(timeUtils.normalizeTime(end1));
+      const start2Minutes = timeUtils.timeToMinutes(timeUtils.normalizeTime(start2));
+      const end2Minutes = timeUtils.timeToMinutes(timeUtils.normalizeTime(end2));
+
+      return (start1Minutes < end2Minutes && start2Minutes < end1Minutes);
+    } catch (error) {
+      console.error('❌ hasTimeOverlap: Error checking overlap', error);
+      return false;
+    }
+  },
+
 
   /**
    * בדיקה אם זמן נתון נמצא בטווח זמינות
@@ -262,6 +321,41 @@ export const timeUtils = {
     } catch (error) {
       return time;
     }
+  },
+
+  /**
+   * פונקציה לbacking up עם time אם start_time לא קיים
+   */
+  extractStartTime: (appointment: any): string => {
+    // נסה קודם start_time, אחר כך time כ-fallback
+    const startTime = appointment.start_time || appointment.time;
+
+    if (!startTime) {
+      console.error('❌ extractStartTime: No time field found in appointment', appointment);
+      throw new Error('No valid time field found in appointment');
+    }
+
+    return timeUtils.normalizeTime(startTime);
+  },
+
+  /**
+   * פונקציה לbacking up עם calculated end_time אם לא קיים
+   */
+  extractEndTime: (appointment: any): string => {
+    if (appointment.end_time) {
+      return timeUtils.normalizeTime(appointment.end_time);
+    }
+
+    // חישוב end_time מ-start_time + duration
+    const startTime = timeUtils.extractStartTime(appointment);
+    const duration = appointment.duration_minutes ||
+      appointment.service?.duration_minutes ||
+      appointment.services?.duration_minutes ||
+      60;
+
+    return timeUtils.minutesToTime(
+      timeUtils.timeToMinutes(startTime) + duration
+    );
   }
 };
 

@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = supabasePublic;
     const body = await request.json();
-    
+
     const {
       slug,
       service_id,
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     const phoneVerification = await verifyPhoneOTP(client_phone);
     if (!phoneVerification.isVerified) {
       return NextResponse.json(
-        { 
+        {
           error: phoneVerification.error || 'נדרש אימות טלפון',
           code: 'PHONE_NOT_VERIFIED'
         },
@@ -85,6 +85,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 🏢 Get service details
+    const { data: service, error: serviceError } = await supabase
+      .from('services')
+      .select('id, duration_minutes')
+      .eq('id', service_id)
+      .single();
+    if (serviceError || !service) {
+      console.error('❌ Service not found:', serviceError);
+      return NextResponse.json({ error: 'שירות לא נמצא' }, { status: 404 });
+    }
+
     // 💾 Create appointment
     const { data: newAppointment, error: insertError } = await supabase
       .from('appointments')
@@ -95,7 +106,11 @@ export async function POST(request: NextRequest) {
         client_name: client_name.trim(),
         client_phone: client_phone.trim(),
         date,
-        time: timeUtils.normalizeTime(time),
+        start_time: timeUtils.normalizeTime(time), // ✅
+        end_time: timeUtils.minutesToTime( // ✅
+          timeUtils.timeToMinutes(timeUtils.normalizeTime(time)) +
+          (service?.duration_minutes || 60)
+        ),
         status: 'pending',
         note: note?.trim() || null,
         client_verified: true
@@ -117,7 +132,7 @@ export async function POST(request: NextRequest) {
 
     // 📧 TODO: Send notification to business owner (email/SMS)
     // await sendAppointmentNotification(business.user_id, newAppointment);
-    
+
     return NextResponse.json({
       success: true,
       appointment: {

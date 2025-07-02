@@ -12,7 +12,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    
+
     // 🔒 Authenticate user
     const auth = await authenticateRequest();
     if (!auth.user) {
@@ -20,15 +20,7 @@ export async function PUT(
     }
 
     // 📋 Parse request body
-    const { date, time, service_id } = await request.json();
-    
-    console.log('🔧 Update appointment request:', {
-      appointmentId: id,
-      date,
-      time,
-      service_id,
-      userId: auth.user.id
-    });
+    const { date, start_time, service_id } = await request.json();
 
     // 🔒 Validate appointment ownership
     const ownership = await validateAppointmentOwnership(auth.user.id, id);
@@ -37,15 +29,15 @@ export async function PUT(
     }
 
     const appointment = ownership.appointment;
-    console.log('✅ Current appointment:', appointment);
 
     // 🎯 Validate new time slot if date/time/service changed
-    if (date && time && service_id) {
+    if (date && start_time && service_id) {
+
       const validationResult = await AppointmentValidator.validateTimeSlot({
         businessId: appointment.business_id,
         serviceId: service_id,
         date,
-        time,
+        start_time,
         excludeAppointmentId: id
       });
 
@@ -53,21 +45,35 @@ export async function PUT(
         return NextResponse.json({ error: validationResult.error }, { status: 400 });
       }
     }
+    // 📝 Prepare update data
+    // 🔧 השתמש בsupabase מאומת
+    const supabase = await getSupabaseClient('server');
 
-    // 💾 Update appointment - תיקון: עדכון בשלבים
-    const supabase = await getSupabaseClient('server'); // 🔧 השתמש בsupabase מאומת
+    // 🏢 Get service details
+    const { data: service, error: serviceError } = await supabase
+      .from('services')
+      .select('id, duration_minutes')
+      .eq('id', service_id)
+      .single();
+    if (serviceError || !service) {
+      console.error('❌ Service not found:', serviceError);
+      return NextResponse.json({ error: 'שירות לא נמצא' }, { status: 404 });
+    }
+    // ⏰ Calculate end time based on service duration
+    const endTime = timeUtils.minutesToTime(
+      timeUtils.timeToMinutes(timeUtils.normalizeTime(start_time)) +
+      (service?.duration_minutes || 60)
+    );
 
-    const updateData: any = {};
-    if (date) updateData.date = date;
-    if (time) updateData.time = timeUtils.normalizeTime(time);
-    if (service_id !== undefined) updateData.service_id = service_id;
-
-    console.log('📝 Update data to apply:', updateData);
-
-    // שלב 1: עדכון התור בלבד
+    // 💾 Update appointment
     const { error: updateError } = await supabase
       .from('appointments')
-      .update(updateData)
+      .update({
+        date,
+        start_time: timeUtils.normalizeTime(start_time),
+        end_time: endTime,
+        service_id
+      })
       .eq('id', id);
 
     if (updateError) {
@@ -78,13 +84,14 @@ export async function PUT(
     console.log('✅ Update successful');
 
     // החזרת תשובה מוצלחת עם הנתונים שעודכנו
-    return NextResponse.json({ 
+    return NextResponse.json({
       message: 'התור עודכן בהצלחה',
       appointment: {
         id,
-        date: updateData.date || appointment.date,
-        time: updateData.time || appointment.time,
-        service_id: updateData.service_id || appointment.service_id,
+        date: date || appointment.date,
+        start_time: timeUtils.normalizeTime(start_time) || appointment.start_time,
+        end_time: endTime || appointment.end_time,
+        service_id: service_id || appointment.service_id,
         status: appointment.status,
         client_name: appointment.client_name,
         client_phone: appointment.client_phone

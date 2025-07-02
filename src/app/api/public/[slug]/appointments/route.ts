@@ -41,16 +41,9 @@ export async function GET(
     const { data: appointments, error } = await supabase
       .from('appointments')
       .select(`
-        id,
-        date, 
-        time, 
-        service_id,
-        status,
-        services!inner(
-          id,
-          name,
-          duration_minutes
-        )
+        id, date, start_time, end_time,
+        service_id, status,
+        services!inner(id, name, duration_minutes)
       `)
       .eq('business_id', business.id)
       .eq('date', date)
@@ -70,7 +63,8 @@ export async function GET(
     const formattedAppointments = appointments.map(apt => ({
       id: apt.id,
       date: apt.date,
-      time: timeUtils.normalizeTime(apt.time),
+      start_time: timeUtils.normalizeTime(apt.start_time), // ✅
+      end_time: timeUtils.normalizeTime(apt.end_time), // ✅
       duration_minutes: (apt.services as any)?.duration_minutes || 60,
       service_name: (apt.services as any)?.name || 'שירות לא מוגדר',
       status: apt.status

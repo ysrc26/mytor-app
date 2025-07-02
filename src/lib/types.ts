@@ -1,5 +1,7 @@
 // src/lib/types.ts
 
+import { timeUtils } from "./time-utils";
+
 // ===== Time Management Types =====
 
 export interface TimeSlot {
@@ -8,7 +10,8 @@ export interface TimeSlot {
 }
 
 export interface AppointmentConflict {
-  time: string;
+  start_time: string;
+  end_time: string;
   duration_minutes: number;
 }
 
@@ -30,7 +33,8 @@ export interface CalendarEvent {
   client_name: string; // שם הלקוח
   client_phone: string; // טלפון הלקוח
   date: string; // YYYY-MM-DD format
-  time: string; // HH:MM format
+  start_time: string; // HH:MM format
+  end_time: string; // HH:MM format
   duration_minutes: number; // משך בדקות
   status: 'pending' | 'confirmed' | 'declined' | 'cancelled';
   service_name?: string; // שם השירות
@@ -48,7 +52,8 @@ export interface CalendarAvailability {
 export type CalendarView = 'day' | 'week' | 'month' | 'work-days' | 'agenda';
 
 export interface TimeSlot {
-  time: string;
+  start_time: string;
+  end_time: string;
   available: boolean;
   hasEvents: boolean;
   events: CalendarEvent[];
@@ -84,7 +89,8 @@ export interface BookingAvailability {
 export interface BookingAppointment {
   id: number;
   date: string;
-  time: string;
+  start_time: string;
+  end_time: string;
   duration_minutes: number;
   service_name?: string;
   status: 'pending' | 'confirmed' | 'declined' | 'cancelled';
@@ -133,14 +139,15 @@ export interface AppointmentRequestBody {
   client_name: string;
   client_phone: string;
   date: string; // YYYY-MM-DD
-  time: string; // HH:MM
+  start_time: string; // HH:MM
   note?: string;
 }
 
 export interface AppointmentResponse {
   id: number;
   date: string;
-  time: string;
+  start_time: string;
+  end_time: string;
   status: string;
   service_name: string;
   business_name: string;
@@ -234,10 +241,15 @@ export interface Appointment {
   client_phone: string;
   client_verified: boolean;
   date: string;
-  time: string;
+  start_time: string;
+  end_time: string; 
   status: 'pending' | 'confirmed' | 'declined' | 'cancelled';
   note?: string;
   created_at: string;
+
+  // Relations
+  services?: Service;
+  businesses?: Business;
 }
 
 export interface Client {
@@ -374,9 +386,32 @@ export const mapToCalendarEvent = (apt: any): CalendarEvent => ({
   client_name: apt.client_name,
   client_phone: apt.client_phone,
   date: apt.date,
-  time: apt.time,
+  start_time: apt.start_time,
+  end_time: apt.end_time,
   duration_minutes: apt.service?.duration_minutes || apt.services?.duration_minutes || 60,
   status: apt.status,
   service_name: apt.service?.name || apt.services?.name,
   note: apt.note
 });
+
+// הוסף defensive programming לפונקציות שעדיין עשויות לקבל time
+export const normalizeAppointmentTime = (apt: any): CalendarEvent => {
+  // תמיכה בשדות ישנים לצורך backward compatibility
+  const start_time = apt.start_time || apt.time;
+  const end_time = apt.end_time || timeUtils.minutesToTime(
+    timeUtils.timeToMinutes(start_time) + (apt.duration_minutes || 60)
+  );
+
+  return {
+    id: apt.id,
+    client_name: apt.client_name,
+    client_phone: apt.client_phone,
+    date: apt.date,
+    start_time,
+    end_time,
+    duration_minutes: apt.service?.duration_minutes || apt.services?.duration_minutes || 60,
+    status: apt.status,
+    service_name: apt.service?.name || apt.services?.name,
+    note: apt.note
+  };
+};

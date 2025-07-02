@@ -160,8 +160,8 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
 
     // מיון לפי תאריך ושעה
     return filtered.sort((a, b) => {
-      const dateA = new Date(`${a.date} ${a.time}`);
-      const dateB = new Date(`${b.date} ${b.time}`);
+      const dateA = new Date(`${a.date} ${a.start_time}`);
+      const dateB = new Date(`${b.date} ${b.start_time}`);
       return dateA.getTime() - dateB.getTime();
     });
   }, [appointments, filters]);
@@ -416,7 +416,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
    * בדיקה אם תור עבר
    */
   const isAppointmentPast = useCallback((appointment: Appointment): boolean => {
-    const appointmentDateTime = new Date(`${appointment.date}T${appointment.time}`);
+    const appointmentDateTime = new Date(`${appointment.date}T${appointment.start_time}`);
     return appointmentDateTime < new Date();
   }, []);
 
@@ -432,7 +432,10 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
    * בדיקה אם ניתן לערוך תור
    */
   const canEditAppointment = useCallback((appointment: Appointment): boolean => {
-    return isAppointmentEditable(appointment, 1); // margin של שעה
+    return isAppointmentEditable(
+      { date: appointment.date, time: appointment.start_time },
+      1
+    ); // margin של שעה
   }, []);
 
   /**

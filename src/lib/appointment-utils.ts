@@ -8,7 +8,7 @@ export interface AppointmentValidationOptions {
   businessId: string;
   serviceId: string;
   date: string;
-  time: string;
+  start_time: string;
   excludeAppointmentId?: string; // For editing existing appointments
 }
 
@@ -26,7 +26,8 @@ export interface TimeSlotConflict {
 
 export interface AppointmentWithService {
   id: string;
-  time: string;
+  start_time: string;
+  end_time: string;
   status: string;
   services?: {
     duration_minutes: number;
@@ -44,7 +45,7 @@ export class AppointmentValidator {
    * Validate if a time slot is available for booking
    */
   static async validateTimeSlot(options: AppointmentValidationOptions): Promise<AvailabilityCheckResult> {
-    const { businessId, serviceId, date, time, excludeAppointmentId } = options;
+    const { businessId, serviceId, date, start_time, excludeAppointmentId } = options;
 
     try {
       // 1. Get business and service info
@@ -63,13 +64,13 @@ export class AppointmentValidator {
         return { isValid: false, error: 'לא ניתן לקבוע תור בעבר' };
       }
 
-      if (timeUtils.isPastTime(time, appointmentDate)) {
+      if (timeUtils.isPastTime(start_time, appointmentDate)) {
         return { isValid: false, error: 'לא ניתן לקבוע תור בזמן שעבר' };
       }
 
       // 3. Check business availability for this day
       const dayOfWeek = appointmentDate.getDay();
-      const availabilityCheck = await this.checkBusinessAvailability(businessId, dayOfWeek, time);
+      const availabilityCheck = await this.checkBusinessAvailability(businessId, dayOfWeek, start_time);
       if (!availabilityCheck.isValid) {
         return availabilityCheck;
       }
@@ -84,7 +85,7 @@ export class AppointmentValidator {
       const conflictCheck = await this.checkAppointmentConflicts(
         businessId,
         date,
-        time,
+        start_time,
         service.duration_minutes,
         excludeAppointmentId
       );
@@ -228,9 +229,9 @@ export class AppointmentValidator {
     const { data } = await supabasePublic
       .from('appointments')
       .select(`
-        id, time, status,
-        services!inner(duration_minutes, name)
-      `)
+      id, start_time, end_time, status,
+      services!inner(duration_minutes, name)
+    `)
       .eq('business_id', businessId)
       .eq('date', date)
       .in('status', ['pending', 'confirmed']);
@@ -270,7 +271,7 @@ export class AppointmentValidator {
   private static async checkAppointmentConflicts(
     businessId: string,
     date: string,
-    time: string,
+    start_time: string, // ✅ שונה מ-time
     duration: number,
     excludeId?: string
   ): Promise<TimeSlotConflict> {
@@ -281,28 +282,46 @@ export class AppointmentValidator {
       ? existingAppointments.filter(apt => apt.id !== excludeId)
       : existingAppointments;
 
-    return this.checkTimeConflictSync(time, duration, relevantAppointments);
+    // Check for conflicts
+    for (const existingApt of relevantAppointments) {
+      const hasConflict = timeUtils.hasTimeOverlap(
+        start_time,
+        timeUtils.minutesToTime(timeUtils.timeToMinutes(start_time) + duration),
+        existingApt.start_time, // ✅ שונה מ-time
+        existingApt.end_time
+      );
+
+      if (hasConflict) {
+        return {
+          hasConflict: true,
+          conflictingTime: existingApt.start_time, // ✅
+          conflictingService: existingApt.services?.name
+        };
+      }
+    }
+
+    return { hasConflict: false };
   }
 
   private static checkTimeConflictSync(
-    time: string,
+    start_time: string,
     duration: number,
     existingAppointments: AppointmentWithService[]
   ): TimeSlotConflict {
-    const normalizedTime = timeUtils.normalizeTime(time);
+    const normalizedTime = timeUtils.normalizeTime(start_time);
 
     for (const apt of existingAppointments) {
       const hasConflict = timeUtils.hasTimeConflict(
         normalizedTime,
         duration,
-        timeUtils.normalizeTime(apt.time),
+        timeUtils.normalizeTime(apt.start_time),
         apt.services?.duration_minutes || 60
       );
 
       if (hasConflict) {
         return {
           hasConflict: true,
-          conflictingTime: apt.time,
+          conflictingTime: apt.start_time,
           conflictingService: apt.services?.name
         };
       }
@@ -328,22 +347,21 @@ export class BusinessOwnerValidator {
    */
   static async checkConflictsForOwner(options: {
     businessId: string;
-    serviceId: string;
+    serviceId?: string;
     date: string;
-    time: string;
+    start_time: string;
+    durationMinutes?: number;
     excludeAppointmentId?: string;
   }): Promise<{
     hasConflict: boolean;
     error?: string;
     conflictingAppointment?: any;
   }> {
-    const { businessId, serviceId, date, time, excludeAppointmentId } = options;
+    const { businessId, serviceId, date, start_time, durationMinutes, excludeAppointmentId } = options;
 
     try {
-      console.log('🔍 BusinessOwnerValidator checking conflicts:', options);
-
       // 1. בדיקות בסיסיות לתאריך ושעה
-      const basicValidation = this.validateBasicTimeConstraints(date, time);
+      const basicValidation = this.validateBasicTimeConstraints(date, start_time);
       if (!basicValidation.isValid) {
         return {
           hasConflict: true,
@@ -351,13 +369,20 @@ export class BusinessOwnerValidator {
         };
       }
 
-      // 2. קבל פרטי השירות למשך התור - ✅ שימוש בפונקציה החדשה
-      const service = await this.getServiceDetails(serviceId, businessId);
-      if (!service) {
-        return {
-          hasConflict: true,
-          error: 'שירות לא נמצא'
-        };
+      let serviceDuration: number;
+
+      if (options.durationMinutes) {
+        // אם העברו duration ישירות - השתמש בזה
+        serviceDuration = options.durationMinutes;
+      } else if (options.serviceId) {
+        // אם יש service_id - שלוף מהשירות
+        const service = await this.getServiceDetails(options.serviceId, options.businessId);
+        if (!service) {
+          return { hasConflict: true, error: 'שירות לא נמצא' };
+        }
+        serviceDuration = service.duration_minutes;
+      } else {
+        return { hasConflict: true, error: 'חסר מידע על משך התור' };
       }
 
       // 3. בדיקת חפיפות עם תורים קיימים - ✅ שימוש בפונקציה החדשה
@@ -371,24 +396,22 @@ export class BusinessOwnerValidator {
 
       // בדיקת חפיפות עם כל תור קיים
       for (const existingApt of activeAppointments) {
-        const existingDuration = existingApt.services?.duration_minutes || 60;
+        // חישוב end_time של התור החדש
+        const newEndTime = timeUtils.minutesToTime(
+          timeUtils.timeToMinutes(start_time) + serviceDuration
+        );
 
-        const hasConflict = timeUtils.hasTimeConflict(
-          time,
-          service.duration_minutes,
-          existingApt.time,
-          existingDuration
+        const hasConflict = timeUtils.hasTimeOverlap(
+          start_time,              // start_time של התור החדש
+          newEndTime,              // end_time של התור החדש
+          existingApt.start_time,  // start_time של התור הקיים
+          existingApt.end_time     // end_time של התור הקיים
         );
 
         if (hasConflict) {
-          console.log('⚠️ Conflict found with existing appointment:', {
-            existingTime: existingApt.time,
-            existingDuration
-          });
-
           return {
             hasConflict: true,
-            error: `יש חפיפה עם תור קיים ב-${existingApt.time}`,
+            error: `יש חפיפה עם תור קיים (${existingApt.start_time}-${existingApt.end_time})`,
             conflictingAppointment: existingApt
           };
         }
@@ -425,17 +448,12 @@ export class BusinessOwnerValidator {
   private static async getExistingAppointmentsForDate(businessId: string, date: string) {
     const { data } = await supabasePublic
       .from('appointments')
-      .select(`
-        id, time, status,
-        services!inner(duration_minutes, name)
-      `)
+      .select('id, start_time, end_time, status')
       .eq('business_id', businessId)
       .eq('date', date)
       .in('status', ['pending', 'confirmed']);
-    return (data || []).map(appointment => ({
-      ...appointment,
-      services: appointment.services ? appointment.services[0] : undefined
-    }));
+
+    return data || [];
   }
 
   /**
@@ -472,32 +490,6 @@ export class BusinessOwnerValidator {
         isValid: false,
         error: 'תאריך או שעה לא תקינים'
       };
-    }
-  }
-
-  /**
-   * בדיקת זמינות מהירה לבעל עסק - רק חפיפות בסיסיות
-   * פונקציה מקוצרת לשימוש במקומות שצריכים בדיקה מהירה
-   */
-  static async quickConflictCheck(
-    businessId: string,
-    serviceId: string,
-    date: string,
-    time: string,
-    excludeAppointmentId?: string
-  ): Promise<boolean> {
-    try {
-      const result = await this.checkConflictsForOwner({
-        businessId,
-        serviceId,
-        date,
-        time,
-        excludeAppointmentId
-      });
-      return result.hasConflict;
-    } catch (error) {
-      console.error('Error in quick conflict check:', error);
-      return true; // במקרה של שגיאה, נניח שיש חפיפה כדי למנוע בעיות
     }
   }
 
@@ -660,7 +652,9 @@ export class BusinessOwnerValidator {
       // שאר הלוגיקה נשארת זהה...
       for (let offset = 0; offset <= searchRangeHours * 60; offset += 15) {
         const forwardTime = timeUtils.minutesToTime(preferredMinutes + offset);
-        if (forwardTime && !this.hasConflictAtTime(forwardTime, service.duration_minutes, existingAppointments)) {
+        const forwardEndTime = timeUtils.minutesToTime(preferredMinutes + offset + service.duration_minutes);
+
+        if (forwardTime && !this.hasConflictAtTime(forwardTime, forwardEndTime, existingAppointments)) {
           return {
             availableTime: forwardTime,
             found: true,
@@ -670,7 +664,9 @@ export class BusinessOwnerValidator {
 
         if (offset > 0) {
           const backwardTime = timeUtils.minutesToTime(preferredMinutes - offset);
-          if (backwardTime && !this.hasConflictAtTime(backwardTime, service.duration_minutes, existingAppointments)) {
+          const backwardEndTime = timeUtils.minutesToTime(preferredMinutes - offset + service.duration_minutes);
+
+          if (backwardTime && !this.hasConflictAtTime(backwardTime, backwardEndTime, existingAppointments)) {
             return {
               availableTime: backwardTime,
               found: true,
@@ -698,21 +694,20 @@ export class BusinessOwnerValidator {
    * בדיקה אם יש חפיפה בשעה ספציפית
    */
   private static hasConflictAtTime(
-    time: string,
-    durationMinutes: number,
-    existingAppointments: Array<{ time: string; duration_minutes?: number; status: string }>
+    start_time: string,
+    end_time: string,
+    existingAppointments: Array<{ start_time: string; end_time: string; status: string }>
   ): boolean {
     const activeAppointments = existingAppointments.filter(apt =>
       ['pending', 'confirmed'].includes(apt.status)
     );
 
     return activeAppointments.some(apt => {
-      const existingDuration = apt.duration_minutes || 60;
-      return timeUtils.hasTimeConflict(
-        time,
-        durationMinutes,
-        apt.time,
-        existingDuration
+      return timeUtils.hasTimeOverlap(
+        start_time,
+        end_time,
+        apt.start_time,
+        apt.end_time
       );
     });
   }
@@ -729,36 +724,38 @@ export const checkBusinessOwnerConflicts = (
   businessId: string,
   serviceId: string,
   date: string,
-  time: string,
+  start_time: string,
+  end_time?: string,
   excludeAppointmentId?: string
 ) => {
   return BusinessOwnerValidator.checkConflictsForOwner({
     businessId,
     serviceId,
     date,
-    time,
+    start_time,
+    durationMinutes: end_time ? timeUtils.timeToMinutes(end_time) - timeUtils.timeToMinutes(start_time) : undefined,
     excludeAppointmentId
   });
 };
 
-/**
- * פונקציה מקוצרת לבדיקה מהירה
- */
-export const hasQuickConflict = (
-  businessId: string,
-  serviceId: string,
-  date: string,
-  time: string,
-  excludeAppointmentId?: string
-) => {
-  return BusinessOwnerValidator.quickConflictCheck(
-    businessId,
-    serviceId,
-    date,
-    time,
-    excludeAppointmentId
-  );
-};
+// /**
+//  * פונקציה מקוצרת לבדיקה מהירה
+//  */
+// export const hasQuickConflict = (
+//   businessId: string,
+//   serviceId: string,
+//   date: string,
+//   time: string,
+//   excludeAppointmentId?: string
+// ) => {
+//   return BusinessOwnerValidator.quickConflictCheck(
+//     businessId,
+//     serviceId,
+//     date,
+//     time,
+//     excludeAppointmentId
+//   );
+// };
 
 /**
  * פונקציה לבדיקת עריכה של תור

@@ -71,9 +71,9 @@ export const AppointmentsList = ({
     filtered.sort((a, b) => {
       switch (sortBy) {
         case 'date-asc':
-          return new Date(`${a.date} ${a.time}`).getTime() - new Date(`${b.date} ${b.time}`).getTime();
+          return new Date(`${a.date} ${a.start_time}`).getTime() - new Date(`${b.date} ${b.start_time}`).getTime();
         case 'date-desc':
-          return new Date(`${b.date} ${b.time}`).getTime() - new Date(`${a.date} ${a.time}`).getTime();
+          return new Date(`${b.date} ${b.start_time}`).getTime() - new Date(`${a.date} ${a.start_time}`).getTime();
         case 'name-asc':
           return a.client_name.localeCompare(b.client_name, 'he');
         case 'name-desc':
@@ -579,11 +579,11 @@ const AppointmentCard = ({
 }: AppointmentCardProps) => {
   const [copied, setCopied] = useState(false);
 
-  const appointmentDateTime = new Date(`${appointment.date}T${appointment.time}`);
+  const appointmentDateTime = new Date(`${appointment.date}T${appointment.start_time}`);
   const now = new Date();
   const isPast = appointmentDateTime < now;
   const isToday = appointment.date === now.toISOString().split('T')[0];
-  const isEditable = isAppointmentEditable(appointment, 1);
+  const isEditable = isAppointmentEditable({ date: appointment.date, time: appointment.start_time }, 1);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -718,7 +718,7 @@ const AppointmentCard = ({
               {/* Date & Time */}
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-gray-500" />
-                <span className="text-gray-600">{formatDate(appointment.date)} • {appointment.time}</span>
+                <span className="text-gray-600">{formatDate(appointment.date)} • {appointment.start_time}</span>
               </div>
 
               {/* Service */}
@@ -920,11 +920,11 @@ const AppointmentTableRow = ({
   onDelete,
   onEdit
 }: AppointmentTableRowProps) => {
-  const appointmentDateTime = new Date(`${appointment.date}T${appointment.time}`);
+  const appointmentDateTime = new Date(`${appointment.date}T${appointment.start_time}`);
   const now = new Date();
   const isPast = appointmentDateTime < now;
   const isToday = appointment.date === now.toISOString().split('T')[0];
-  const isEditable = isAppointmentEditable(appointment, 1);
+  const isEditable = isAppointmentEditable({date: appointment.date, time: appointment.start_time}, 1);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -1003,7 +1003,7 @@ const AppointmentTableRow = ({
               month: 'short'
             })}
           </div>
-          <div className="text-gray-500">{appointment.time}</div>
+          <div className="text-gray-500">{appointment.start_time}</div>
         </div>
       </td>
 

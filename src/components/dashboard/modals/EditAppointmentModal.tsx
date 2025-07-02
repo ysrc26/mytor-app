@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { checkBusinessOwnerConflicts } from '@/lib/appointment-utils';
+import { BusinessOwnerValidator, checkBusinessOwnerConflicts } from '@/lib/appointment-utils';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 import type { Appointment, Service } from '@/lib/types';
+import { timeUtils } from '@/lib/time-utils';
 
 interface EditAppointmentModalProps {
   isOpen: boolean;
@@ -25,7 +26,8 @@ interface AppointmentForm {
   client_phone: string;
   service_id: string;
   date: string;
-  time: string;
+  start_time: string;
+  end_time?: string;
   note: string;
 }
 
@@ -42,12 +44,12 @@ export const EditAppointmentModal = ({
     client_phone: '',
     service_id: '',
     date: '',
-    time: '',
+    start_time: '',
+    end_time: '',
     note: ''
   });
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
-  // const [conflictError, setConflictError] = useState<string | null>(null);
 
   // Initialize form when appointment changes
   useEffect(() => {
@@ -57,7 +59,8 @@ export const EditAppointmentModal = ({
         client_phone: appointment.client_phone || '',
         service_id: appointment.service_id || '',
         date: appointment.date || '',
-        time: appointment.time || '',
+        start_time: appointment.start_time || '',
+        end_time: appointment.end_time || '',
         note: appointment.note || ''
       });
     }
@@ -71,7 +74,24 @@ export const EditAppointmentModal = ({
   };
 
   const checkForConflicts = async () => {
-    if (!appointmentForm.service_id || !appointmentForm.date || !appointmentForm.time) {
+    if (!appointmentForm.service_id || !appointmentForm.date || !appointmentForm.start_time) {
+      return false;
+    }
+
+    // חישוב duration בדקות
+    let durationMinutes: number;
+
+    if (appointmentForm.service_id) {
+      // אם נבחר שירות - קח את המשך מהשירות
+      const service = services.find(s => s.id === appointmentForm.service_id);
+      if (!service) return false;
+      durationMinutes = service.duration_minutes;
+    } else if (appointmentForm.end_time) {
+      // אם לא נבחר שירות - חשב duration לפי start_time ו-end_time
+      const startMinutes = timeUtils.timeToMinutes(appointmentForm.start_time);
+      const endMinutes = timeUtils.timeToMinutes(appointmentForm.end_time);
+      durationMinutes = endMinutes - startMinutes;
+    } else {
       return false;
     }
 
@@ -79,12 +99,13 @@ export const EditAppointmentModal = ({
       setValidating(true);
       // setConflictError(null);
 
-      const conflictCheck = await checkBusinessOwnerConflicts(
+      const conflictCheck = await BusinessOwnerValidator.checkConflictsForOwner({
         businessId,
-        appointmentForm.service_id,
-        appointmentForm.date,
-        appointmentForm.time
-      );
+        date: appointmentForm.date,
+        start_time: appointmentForm.start_time,
+        durationMinutes,
+        excludeAppointmentId: appointment?.id ?? ''
+      });
 
       if (conflictCheck.hasConflict) {
         showErrorToast(conflictCheck.error || 'יש חפיפה עם תור קיים');
@@ -126,13 +147,13 @@ export const EditAppointmentModal = ({
       return;
     }
 
-    if (!appointmentForm.time) {
+    if (!appointmentForm.start_time) {
       showErrorToast('שעה היא שדה חובה');
       return;
     }
 
     // Check if appointment is in the past
-    const appointmentDateTime = new Date(`${appointmentForm.date}T${appointmentForm.time}`);
+    const appointmentDateTime = new Date(`${appointmentForm.date}T${appointmentForm.start_time}`);
     const now = new Date();
     if (appointmentDateTime < now) {
       showErrorToast('לא ניתן לקבוע תור בעבר');
@@ -144,9 +165,14 @@ export const EditAppointmentModal = ({
       businessId,
       appointmentForm.service_id,
       appointmentForm.date,
-      appointmentForm.time,
+      appointmentForm.start_time,
       appointment.id // ✅ חשוב! לא לכלול את התור הנוכחי בבדיקה
     );
+
+    if (conflictCheck.hasConflict) {
+      showErrorToast(conflictCheck.error || 'יש חפיפה עם תור קיים');
+      return;
+    }
 
     try {
       setSaving(true);
@@ -154,7 +180,7 @@ export const EditAppointmentModal = ({
       // Only send changed fields
       const updates: any = {};
       if (appointmentForm.date !== appointment.date) updates.date = appointmentForm.date;
-      if (appointmentForm.time !== appointment.time) updates.time = appointmentForm.time;
+      if (appointmentForm.start_time !== appointment.start_time) updates.start_time = appointmentForm.start_time;
       if (appointmentForm.service_id !== appointment.service_id) updates.service_id = appointmentForm.service_id;
       if (appointmentForm.note !== (appointment.note || '')) updates.note = appointmentForm.note;
 
@@ -180,7 +206,7 @@ export const EditAppointmentModal = ({
   };
 
   const isAppointmentPast = appointment ?
-    new Date(`${appointment.date}T${appointment.time}`) < new Date() : false;
+    new Date(`${appointment.date}T${appointment.start_time}`) < new Date() : false;
 
   if (!isOpen || !appointment) return null;
 
@@ -195,9 +221,6 @@ export const EditAppointmentModal = ({
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-2xl font-bold">עריכת תור</h2>
-              <p className="text-green-100 mt-1">
-                {isAppointmentPast ? 'תור שעבר - צפייה בלבד' : 'עדכן את פרטי התור'}
-              </p>
             </div>
             <button
               onClick={onClose}
@@ -292,8 +315,8 @@ export const EditAppointmentModal = ({
                     <Input
                       id="appointment-time"
                       type="time"
-                      value={appointmentForm.time}
-                      onChange={(e) => handleInputChange('time', e.target.value)}
+                      value={appointmentForm.start_time}
+                      onChange={(e) => handleInputChange('start_time', e.target.value)}
                       disabled={saving || isAppointmentPast}
                       readOnly={isAppointmentPast}
                     />

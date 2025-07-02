@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
-import { checkBusinessOwnerConflicts } from '@/lib/appointment-utils';
+import { BusinessOwnerValidator } from '@/lib/appointment-utils';
 import type { Service } from '@/lib/types';
+import { timeUtils } from '@/lib/time-utils';
 
 interface CreateAppointmentModalProps {
   isOpen: boolean;
@@ -21,7 +22,8 @@ interface CreateAppointmentModalProps {
     client_phone: string;
     service_id?: string;
     date: string;
-    time: string;
+    start_time: string;
+    end_time: string;
     note?: string;
   }) => Promise<void>;
   prefilledDate?: string;
@@ -33,7 +35,8 @@ interface AppointmentForm {
   client_phone: string;
   service_id: string;
   date: string;
-  time: string;
+  start_time: string;
+  end_time: string;
   note: string;
 }
 
@@ -51,7 +54,8 @@ export const CreateAppointmentModal = ({
     client_phone: '',
     service_id: '',
     date: prefilledDate,
-    time: prefilledTime,
+    start_time: prefilledTime,
+    end_time: '',
     note: ''
   });
   const [saving, setSaving] = useState(false);
@@ -66,7 +70,8 @@ export const CreateAppointmentModal = ({
         client_phone: '',
         service_id: services.length === 1 ? services[0].id : '',
         date: prefilledDate || '',
-        time: prefilledTime || '',
+        start_time: prefilledTime || '',
+        end_time: '',
         note: ''
       });
     }
@@ -79,7 +84,24 @@ export const CreateAppointmentModal = ({
     }));
   };
   const checkForConflicts = async () => {
-    if (!appointmentForm.service_id || !appointmentForm.date || !appointmentForm.time) {
+    if (!appointmentForm.date || !appointmentForm.start_time) {
+      return false;
+    }
+
+    // חישוב duration בדקות
+    let durationMinutes: number;
+
+    if (appointmentForm.service_id) {
+      // אם נבחר שירות - קח את המשך מהשירות
+      const service = services.find(s => s.id === appointmentForm.service_id);
+      if (!service) return false;
+      durationMinutes = service.duration_minutes;
+    } else if (appointmentForm.end_time) {
+      // אם לא נבחר שירות - חשב duration לפי start_time ו-end_time
+      const startMinutes = timeUtils.timeToMinutes(appointmentForm.start_time);
+      const endMinutes = timeUtils.timeToMinutes(appointmentForm.end_time);
+      durationMinutes = endMinutes - startMinutes;
+    } else {
       return false;
     }
 
@@ -87,12 +109,12 @@ export const CreateAppointmentModal = ({
       setValidating(true);
       // setConflictError(null);
 
-      const conflictCheck = await checkBusinessOwnerConflicts(
-        businessId,
-        appointmentForm.service_id,
-        appointmentForm.date,
-        appointmentForm.time
-      );
+    const conflictCheck = await BusinessOwnerValidator.checkConflictsForOwner({
+      businessId,
+      date: appointmentForm.date,
+      start_time: appointmentForm.start_time,
+      durationMinutes
+    });
 
       if (conflictCheck.hasConflict) {
         showErrorToast(conflictCheck.error || 'יש חפיפה עם תור קיים');
@@ -132,13 +154,29 @@ export const CreateAppointmentModal = ({
       return;
     }
 
-    if (!appointmentForm.time) {
+    if (!appointmentForm.start_time) {
       showErrorToast('שעה היא שדה חובה');
       return;
     }
 
+    if (!appointmentForm.service_id && !appointmentForm.end_time) {
+      showErrorToast('יש לבחור שירות או להגדיר שעת סיום');
+      return;
+    }
+
+    // אם אין שירות, וודא ששעת הסיום אחרי שעת ההתחלה
+    if (!appointmentForm.service_id && appointmentForm.end_time) {
+      const startMinutes = timeUtils.timeToMinutes(appointmentForm.start_time);
+      const endMinutes = timeUtils.timeToMinutes(appointmentForm.end_time);
+
+      if (endMinutes <= startMinutes) {
+        showErrorToast('שעת הסיום חייבת להיות אחרי שעת ההתחלה');
+        return;
+      }
+    }
+
     // Check if appointment is in the past
-    const appointmentDateTime = new Date(`${appointmentForm.date}T${appointmentForm.time}`);
+    const appointmentDateTime = new Date(`${appointmentForm.date}T${appointmentForm.start_time}`);
     const now = new Date();
     if (appointmentDateTime < now) {
       showErrorToast('לא ניתן לקבוע תור בעבר');
@@ -160,13 +198,16 @@ export const CreateAppointmentModal = ({
         client_name: appointmentForm.client_name.trim(),
         client_phone: appointmentForm.client_phone.trim(),
         date: appointmentForm.date,
-        time: appointmentForm.time,
+        start_time: appointmentForm.start_time,
+        end_time: appointmentForm.end_time,
         note: appointmentForm.note.trim()
       };
 
-      // Add service_id only if selected
+      // הוסף שירות או שעת סיום
       if (appointmentForm.service_id) {
         (appointmentData as any).service_id = appointmentForm.service_id;
+      } else {
+        (appointmentData as any).end_time = appointmentForm.end_time;
       }
 
       await onCreate(appointmentData);
@@ -305,8 +346,8 @@ export const CreateAppointmentModal = ({
                     <Input
                       id="appointment-time"
                       type="time"
-                      value={appointmentForm.time}
-                      onChange={(e) => handleInputChange('time', e.target.value)}
+                      value={appointmentForm.start_time}
+                      onChange={(e) => handleInputChange('start_time', e.target.value)}
                       disabled={saving}
                       list="time-suggestions"
                     />
@@ -319,18 +360,41 @@ export const CreateAppointmentModal = ({
                   </div>
                 </div>
 
+                {/* End Time */}
+                {!appointmentForm.service_id && (
+                  <div>
+                    <Label htmlFor="appointment-end-time">שעת סיום *</Label>
+                    <div className="relative mt-1">
+                      <Input
+                        id="appointment-end-time"
+                        type="time"
+                        value={appointmentForm.end_time}
+                        onChange={(e) => handleInputChange('end_time', e.target.value)}
+                        disabled={saving}
+                      />
+                      <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    </div>
+                  </div>
+                )}
+
                 {/* Service Selection */}
                 {services.length > 0 && (
                   <div className="md:col-span-2">
-                    <Label htmlFor="service-select">שירות</Label>
+                    <Label htmlFor="service-select">שירות (אופציונלי)</Label>
                     <select
                       id="service-select"
                       value={appointmentForm.service_id}
-                      onChange={(e) => handleInputChange('service_id', e.target.value)}
+                      onChange={(e) => {
+                        handleInputChange('service_id', e.target.value);
+                        // איפוס שעת סיום כשבוחרים שירות
+                        if (e.target.value) {
+                          handleInputChange('end_time', '');
+                        }
+                      }}
                       className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       disabled={saving}
                     >
-                      <option value="">ללא שירות מוגדר</option>
+                      <option value="">ללא שירות מוגדר - הגדר שעת סיום ידנית</option>
                       {services.filter(s => s.is_active).map((service) => (
                         <option key={service.id} value={service.id}>
                           {service.name} ({service.duration_minutes} דקות)
@@ -338,7 +402,6 @@ export const CreateAppointmentModal = ({
                         </option>
                       ))}
                     </select>
-
                     {services.length === 0 && (
                       <p className="text-sm text-gray-500 mt-1">
                         אין שירותים פעילים. ניתן להוסיף שירותים בהגדרות העסק.
@@ -393,7 +456,7 @@ export const CreateAppointmentModal = ({
                   <button
                     key={time}
                     type="button"
-                    onClick={() => handleInputChange('time', time)}
+                    onClick={() => handleInputChange('start_time', time)}
                     className="px-3 py-1 text-sm bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors"
                     disabled={saving}
                   >

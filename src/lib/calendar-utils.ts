@@ -141,12 +141,21 @@ export const isToday = (date: Date): boolean => {
 };
 
 /**
- * בדיקה אם זמן עבר
+ * בדיקה אם זמן או תאריך עברו  
  */
-export const isPastTime = (date: Date, time: string): boolean => {
+export const isPastTime = (date: Date, time?: string): boolean => {
   const now = new Date();
-  const dateTime = new Date(`${date.toISOString().split('T')[0]} ${time}`);
-  return dateTime < now;
+  
+  if (time) {
+    const [hours, minutes] = time.split(':').map(Number);
+    const dateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes);
+    return dateTime < now;
+  }
+  
+  // השוואת תאריכים בלי שעות
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return checkDate < today;
 };
 
 /**
@@ -219,4 +228,14 @@ export const generateDisplayDates = (
   }
   
   return dates;
+};
+
+/**
+ * המרת תאריך לstring מקומי (בלי UTC)
+ */
+export const dateToLocalString = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };

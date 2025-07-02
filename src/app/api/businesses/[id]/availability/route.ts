@@ -51,6 +51,7 @@ export async function POST(
       .from('availability')
       .insert({
         business_id: resolvedParams.id,
+        user_id: user.id,
         day_of_week,
         start_time,
         end_time,

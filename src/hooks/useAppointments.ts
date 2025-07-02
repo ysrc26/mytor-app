@@ -31,24 +31,24 @@ export interface UseAppointmentsResult {
   // Data
   appointments: Appointment[];
   filteredAppointments: Appointment[];
-  
+
   // Computed data
   pendingCount: number;
   confirmedCount: number;
   totalCount: number;
   todayAppointments: Appointment[];
   upcomingAppointments: Appointment[];
-  
+
   // States
   loading: boolean;
   updating: boolean;
   error: string | null;
-  
+
   // Filters
   filters: UseAppointmentsFilters;
   setFilters: (filters: UseAppointmentsFilters) => void;
   clearFilters: () => void;
-  
+
   // Actions
   loadAppointments: (filters?: UseAppointmentsFilters) => Promise<void>;
   createAppointment: (data: CreateAppointmentData) => Promise<Appointment | null>;
@@ -58,12 +58,12 @@ export interface UseAppointmentsResult {
   checkConflicts: (serviceId: string, date: string, time: string, excludeId?: string) => Promise<{ hasConflict: boolean; error?: string }>;
   refreshAppointments: () => Promise<void>;
   clearError: () => void;
-  
+
   // Utilities
   isAppointmentPast: (appointment: Appointment) => boolean;
   isAppointmentToday: (appointment: Appointment) => boolean;
   canEditAppointment: (appointment: Appointment) => boolean;
-  
+
   // API instance
   api: BusinessAPI;
 }
@@ -80,7 +80,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<UseAppointmentsFilters>({ status: 'all' });
-  
+
   // יצירת API instance
   const api = useMemo(() => new BusinessAPI(businessId), [businessId]);
 
@@ -97,7 +97,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     try {
       setLoading(true);
       setError(null);
-      
+
       const filtersToUse = queryFilters || filters;
       console.log('🔄 Loading appointments with filters:', filtersToUse);
 
@@ -110,7 +110,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
 
       const appointmentsData = await api.fetchAppointments(apiFilters);
       setAppointments(appointmentsData);
-      
+
       console.log(`✅ Loaded ${appointmentsData.length} appointments`);
 
     } catch (err) {
@@ -118,7 +118,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       setError(errorMessage);
       showErrorToast(errorMessage);
       console.error('❌ Error loading appointments:', err);
-      
+
     } finally {
       setLoading(false);
     }
@@ -148,7 +148,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
 
     // פילטר לפי טווח תאריכים
     if (filters.dateRange) {
-      filtered = filtered.filter(apt => 
+      filtered = filtered.filter(apt =>
         apt.date >= filters.dateRange!.start && apt.date <= filters.dateRange!.end
       );
     }
@@ -169,13 +169,13 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
   /**
    * סטטיסטיקות מחושבות
    */
-  const pendingCount = useMemo(() => 
-    appointments.filter(apt => apt.status === 'pending').length, 
+  const pendingCount = useMemo(() =>
+    appointments.filter(apt => apt.status === 'pending').length,
     [appointments]
   );
 
-  const confirmedCount = useMemo(() => 
-    appointments.filter(apt => apt.status === 'confirmed').length, 
+  const confirmedCount = useMemo(() =>
+    appointments.filter(apt => apt.status === 'confirmed').length,
     [appointments]
   );
 
@@ -196,12 +196,12 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     const today = new Date();
     const weekFromNow = new Date();
     weekFromNow.setDate(today.getDate() + 7);
-    
+
     return appointments.filter(apt => {
       const aptDate = new Date(apt.date);
-      return aptDate >= today && 
-             aptDate <= weekFromNow && 
-             apt.status === 'confirmed';
+      return aptDate >= today &&
+        aptDate <= weekFromNow &&
+        apt.status === 'confirmed';
     });
   }, [appointments]);
 
@@ -219,38 +219,32 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
 
       console.log('🔄 Creating appointment:', data);
 
-      // בדיקת חפיפות אם יש service_id
-      if (data.service_id) {
-        const conflictCheck = await checkBusinessOwnerConflicts(
-          businessId,
-          data.service_id,
-          data.date,
-          data.time
-        );
-
-        if (conflictCheck.hasConflict) {
-          showErrorToast(conflictCheck.error || 'יש חפיפה עם תור קיים');
-          return null;
-        }
-      }
+      // 🚫 הסר את הvalidation הכפול מכאן - יש כבר ב-API!
+      // if (data.service_id) {
+      //   const conflictCheck = await checkBusinessOwnerConflicts(...);
+      // }
 
       const newAppointment = await api.createAppointment(data);
-      
-      // Optimistic update
+
+      // רק אם הצליח - עדכן state
       setAppointments(prev => [newAppointment, ...prev]);
-      
+
+      // ✅ הטוסט יוצג רק כאן
       showSuccessToast('התור נוצר בהצלחה');
       console.log('✅ Appointment created successfully');
-      
+
       return newAppointment;
 
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'שגיאה ביצירת התור';
+    } catch (err: any) {
+      // ✅ הטוסט שגיאה יוצג רק כאן
+      const errorMessage = err.response?.data?.error || err.message || 'שגיאה ביצירת התור';
       setError(errorMessage);
       showErrorToast(errorMessage);
       console.error('❌ Error creating appointment:', err);
-      return null;
-      
+
+      // ✅ זרוק שגיאה כדי שהמודאל לא יסגר
+      throw new Error(errorMessage);
+
     } finally {
       setUpdating(false);
     }
@@ -260,7 +254,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
    * עדכון סטטוס תור
    */
   const updateAppointmentStatus = useCallback(async (
-    appointmentId: string, 
+    appointmentId: string,
     status: 'confirmed' | 'declined' | 'cancelled'
   ) => {
     try {
@@ -270,7 +264,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       console.log(`🔄 Updating appointment ${appointmentId} status to ${status}`);
 
       await api.updateAppointmentStatus(appointmentId, status);
-      
+
       // Optimistic update
       setAppointments(prev => prev.map(apt =>
         apt.id === appointmentId ? { ...apt, status } : apt
@@ -278,7 +272,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
 
       const statusText = {
         'confirmed': 'אושר',
-        'declined': 'נדחה', 
+        'declined': 'נדחה',
         'cancelled': 'בוטל'
       }[status];
 
@@ -290,7 +284,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       setError(errorMessage);
       showErrorToast(errorMessage);
       console.error('❌ Error updating appointment status:', err);
-      
+
     } finally {
       setUpdating(false);
     }
@@ -326,7 +320,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       }
 
       const updatedAppointment = await api.updateAppointment(appointmentId, data);
-      
+
       // Optimistic update
       setAppointments(prev => prev.map(apt =>
         apt.id === appointmentId ? { ...apt, ...updatedAppointment } : apt
@@ -340,7 +334,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       setError(errorMessage);
       showErrorToast(errorMessage);
       console.error('❌ Error updating appointment:', err);
-      
+
     } finally {
       setUpdating(false);
     }
@@ -360,7 +354,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       console.log(`🔄 Deleting appointment ${appointmentId}`);
 
       await api.deleteAppointment(appointmentId);
-      
+
       // Optimistic update
       setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
 
@@ -372,7 +366,7 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       setError(errorMessage);
       showErrorToast(errorMessage);
       console.error('❌ Error deleting appointment:', err);
-      
+
     } finally {
       setUpdating(false);
     }
@@ -386,9 +380,9 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
    * בדיקת חפיפות
    */
   const checkConflicts = useCallback(async (
-    serviceId: string, 
-    date: string, 
-    time: string, 
+    serviceId: string,
+    date: string,
+    time: string,
     excludeId?: string
   ) => {
     try {
@@ -467,24 +461,24 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     // Data
     appointments,
     filteredAppointments,
-    
+
     // Computed data
     pendingCount,
     confirmedCount,
     totalCount,
     todayAppointments,
     upcomingAppointments,
-    
+
     // States
     loading,
     updating,
     error,
-    
+
     // Filters
     filters,
     setFilters,
     clearFilters,
-    
+
     // Actions
     loadAppointments,
     createAppointment,
@@ -494,12 +488,12 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     checkConflicts,
     refreshAppointments,
     clearError,
-    
+
     // Utilities
     isAppointmentPast,
     isAppointmentToday,
     canEditAppointment,
-    
+
     // API instance
     api
   };
@@ -513,13 +507,13 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
  * Hook לסטטיסטיקות מהירות
  */
 export const useAppointmentStats = (businessId: string) => {
-  const { 
-    pendingCount, 
-    confirmedCount, 
-    totalCount, 
-    todayAppointments, 
+  const {
+    pendingCount,
+    confirmedCount,
+    totalCount,
+    todayAppointments,
     upcomingAppointments,
-    loading 
+    loading
   } = useAppointments(businessId);
 
   return {

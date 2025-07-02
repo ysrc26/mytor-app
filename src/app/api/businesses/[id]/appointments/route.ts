@@ -109,34 +109,56 @@ export async function POST(
       return NextResponse.json({ error: 'לא ניתן לקבוע תור בעבר' }, { status: 400 });
     }
 
-    // Validate end_time if provided
+    // 🛡️ בדיקת חפיפות - חובה!
+    let durationMinutes: number;
+
     if (service_id) {
-      const conflictCheck = await BusinessOwnerValidator.checkConflictsForOwner({
-        businessId,
-        serviceId: service_id,
-        date,
-        start_time: timeUtils.normalizeTime(start_time)
-      });
+      console.log('Service ID provided:', service_id);
+      // קבל פרטי השירות
+      const { data: service } = await supabase
+        .from('services')
+        .select('duration_minutes')
+        .eq('id', service_id)
+        .eq('business_id', businessId)
+        .single();
 
-      if (conflictCheck.hasConflict) {
-        return NextResponse.json({
-          error: conflictCheck.error || 'יש חפיפה עם תור קיים'
-        }, { status: 409 });
+      if (!service) {
+        return NextResponse.json({ error: 'שירות לא נמצא' }, { status: 400 });
       }
+
+      durationMinutes = service.duration_minutes;
+      console.log('Service duration:', durationMinutes, 'minutes');
     } else if (end_time) {
-      const durationMinutes = timeUtils.timeToMinutes(end_time) - timeUtils.timeToMinutes(start_time);
-      const conflictCheck = await BusinessOwnerValidator.checkConflictsForOwner({
-        businessId,
-        date,
-        start_time: timeUtils.normalizeTime(start_time),
-        durationMinutes
-      });
-
-      if (conflictCheck.hasConflict) {
-        return NextResponse.json({
-          error: conflictCheck.error || 'יש חפיפה עם תור קיים'
-        }, { status: 409 });
+      durationMinutes = timeUtils.timeToMinutes(end_time) - timeUtils.timeToMinutes(start_time);
+      console.log('End time provided, calculated duration:', durationMinutes, 'minutes');
+      if (durationMinutes <= 0) {
+        return NextResponse.json({ error: 'זמן הסיום חייב להיות אחרי זמן ההתחלה' }, { status: 400 });
       }
+    } else {
+      return NextResponse.json({ error: 'יש לבחור שירות או להגדיר זמן סיום' }, { status: 400 });
+    }
+
+    console.log('data for conflict check:', {
+      'businessId: ': businessId,
+      'serviceId: ': service_id,
+      'date: ': date,
+      'start_time: ': timeUtils.normalizeTime(start_time),
+      'durationMinutes: ': durationMinutes
+    });
+
+    // 🚨 בדיקת חפיפות - זה החשוב!
+    const conflictCheck = await BusinessOwnerValidator.checkConflictsForOwner({
+      businessId,
+      serviceId: service_id,
+      date,
+      start_time: timeUtils.normalizeTime(start_time),
+      durationMinutes
+    });
+
+    if (conflictCheck.hasConflict) {
+      return NextResponse.json({
+        error: conflictCheck.error || 'יש חפיפה עם תור קיים'
+      }, { status: 409 });
     }
 
     // Calculate final end_time for database insert

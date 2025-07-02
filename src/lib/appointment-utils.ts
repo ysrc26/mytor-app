@@ -387,12 +387,16 @@ export class BusinessOwnerValidator {
 
       // 3. בדיקת חפיפות עם תורים קיימים - ✅ שימוש בפונקציה החדשה
       const existingAppointments = await this.getExistingAppointmentsForDate(businessId, date);
+      console.log('🔍 Active appointments found:', existingAppointments.length);
+      console.log('🔍 Appointments details:', existingAppointments);
 
       // סנן תורים פעילים ולא כולל את התור הנוכחי
       const activeAppointments = existingAppointments.filter((apt: any) =>
         ['pending', 'confirmed'].includes(apt.status) &&
         apt.id !== excludeAppointmentId
       );
+
+      console.log('🔍 Active appointments after filtering:', activeAppointments.length);
 
       // בדיקת חפיפות עם כל תור קיים
       for (const existingApt of activeAppointments) {
@@ -407,6 +411,18 @@ export class BusinessOwnerValidator {
           existingApt.start_time,  // start_time של התור הקיים
           existingApt.end_time     // end_time של התור הקיים
         );
+
+        console.log('🔍 OVERLAP TEST:', {
+          newRange: `${start_time}-${newEndTime}`,
+          existingRange: `${existingApt.start_time}-${existingApt.end_time}`,
+          result: hasConflict
+        });
+
+        // console.log('🔍 Checking conflict:', {
+        //   new: `${start_time}-${newEndTime}`,
+        //   existing: `${existingApt.start_time}-${existingApt.end_time}`,
+        //   hasConflict
+        // });
 
         if (hasConflict) {
           return {
@@ -446,14 +462,25 @@ export class BusinessOwnerValidator {
    * קבלת תורים קיימים (פונקציה עצמאית)
    */
   private static async getExistingAppointmentsForDate(businessId: string, date: string) {
-    const { data } = await supabasePublic
-      .from('appointments')
-      .select('id, start_time, end_time, status')
+    const { data, error } = await supabasePublic
+      .from('public_appointments_with_services') // ✅ View public
+      .select('id, start_time, end_time, status, duration_minutes')
       .eq('business_id', businessId)
       .eq('date', date)
       .in('status', ['pending', 'confirmed']);
 
-    return data || [];
+    console.log('🔍 Using public view result:', { data, error });
+
+    if (error) {
+      console.error('❌ Error fetching appointments:', error);
+      return [];
+    }
+
+    return (data || []).map(apt => ({
+      ...apt,
+      start_time: timeUtils.normalizeTime(apt.start_time),
+      end_time: timeUtils.normalizeTime(apt.end_time)
+    }));
   }
 
   /**

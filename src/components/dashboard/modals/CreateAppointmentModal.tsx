@@ -109,12 +109,12 @@ export const CreateAppointmentModal = ({
       setValidating(true);
       // setConflictError(null);
 
-    const conflictCheck = await BusinessOwnerValidator.checkConflictsForOwner({
-      businessId,
-      date: appointmentForm.date,
-      start_time: appointmentForm.start_time,
-      durationMinutes
-    });
+      const conflictCheck = await BusinessOwnerValidator.checkConflictsForOwner({
+        businessId,
+        date: appointmentForm.date,
+        start_time: appointmentForm.start_time,
+        durationMinutes
+      });
 
       if (conflictCheck.hasConflict) {
         showErrorToast(conflictCheck.error || 'יש חפיפה עם תור קיים');
@@ -210,9 +210,15 @@ export const CreateAppointmentModal = ({
         (appointmentData as any).end_time = appointmentForm.end_time;
       }
 
-      await onCreate(appointmentData);
-      showSuccessToast('התור נוצר בהצלחה');
-      onClose();
+      try {
+        await onCreate(appointmentData);
+        onClose();
+      } catch (error) {
+        // אל תסגור את המודאל!
+        // אל תציג הודעת הצלחה!
+        console.error('Error creating appointment:', error);
+        // השגיאה כבר מוצגת ב-onCreate
+      }
     } catch (error) {
       showErrorToast(error instanceof Error ? error.message : 'שגיאה ביצירת התור');
     } finally {

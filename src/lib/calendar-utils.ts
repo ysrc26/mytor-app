@@ -67,8 +67,8 @@ export const getEventsForDateTime = (
   return events.filter(event => {
     if (event.date !== dateStr) return false;
     
-    const eventStartTime = event.time;
-    const eventEndTime = addMinutesToTime(event.time, event.duration);
+    const eventStartTime = event.start_time;
+    const eventEndTime = addMinutesToTime(event.start_time, event.duration_minutes);
     
     return isTimeInRange(timeSlot, eventStartTime, eventEndTime);
   });

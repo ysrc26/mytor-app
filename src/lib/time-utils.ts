@@ -96,18 +96,6 @@ export const timeUtils = {
     const day = String(date.getDate()).padStart(2, '0');
     const result = `${year}-${month}-${day}`;
 
-    // 🐛 DEBUG לוג
-    console.log('🔧 formatDateForAPI:', {
-      inputDate: date,
-      inputISOString: date.toISOString(),
-      year,
-      month,
-      day,
-      result,
-      dateGetDay: date.getDay(),
-      reconstructed: new Date(result + 'T12:00:00')
-    });
-
     return result;
   },
 
@@ -154,16 +142,17 @@ export const timeUtils = {
     end2: string
   ): boolean => {
     try {
-      // וידוא שכל הקלטים תקינים
-      if (!start1 || !end1 || !start2 || !end2) {
-        console.error('❌ hasTimeOverlap: Missing time values', { start1, end1, start2, end2 });
-        return false;
-      }
-
       const start1Minutes = timeUtils.timeToMinutes(timeUtils.normalizeTime(start1));
       const end1Minutes = timeUtils.timeToMinutes(timeUtils.normalizeTime(end1));
       const start2Minutes = timeUtils.timeToMinutes(timeUtils.normalizeTime(start2));
       const end2Minutes = timeUtils.timeToMinutes(timeUtils.normalizeTime(end2));
+
+      // 🔍 הוסף לוג לדיבוג
+      console.log('🔍 Overlap check:', {
+        range1: `${start1}-${end1} (${start1Minutes}-${end1Minutes})`,
+        range2: `${start2}-${end2} (${start2Minutes}-${end2Minutes})`,
+        overlap: (start1Minutes < end2Minutes && start2Minutes < end1Minutes)
+      });
 
       return (start1Minutes < end2Minutes && start2Minutes < end1Minutes);
     } catch (error) {
@@ -190,6 +179,51 @@ export const timeUtils = {
       console.error('Error checking if time in slot:', error);
       return false;
     }
+  },
+
+  /**
+ * המרת תאריך מ-API string לDate object בצורה בטוחה
+ * @param dateStr - תאריך בפורמט YYYY-MM-DD
+ * @returns Date object
+ */
+  parseAPIDate: (dateStr: string): Date => {
+    if (!dateStr || typeof dateStr !== 'string') {
+      throw new Error(`Invalid date string: ${dateStr}`);
+    }
+
+    const [year, month, day] = dateStr.split('-').map(Number);
+
+    if (isNaN(year) || isNaN(month) || isNaN(day)) {
+      throw new Error(`Invalid date format: ${dateStr}`);
+    }
+
+    // יצירת תאריך מקומי ללא בעיות UTC
+    return new Date(year, month - 1, day);
+  },
+
+  /**
+   * בדיקה אם שני תאריכים שווים (בלי שעה)
+   * @param date1 - תאריך ראשון
+   * @param date2 - תאריך שני
+   * @returns true אם התאריכים שווים
+   */
+  isSameDate: (date1: Date, date2: Date): boolean => {
+    return (
+      date1.getFullYear() === date2.getFullYear() &&
+      date1.getMonth() === date2.getMonth() &&
+      date1.getDate() === date2.getDate()
+    );
+  },
+
+  /**
+   * יצירת תאריך ללא שעה (00:00:00)
+   * @param date - התאריך
+   * @returns תאריך עם שעה 00:00:00
+   */
+  startOfDay: (date: Date): Date => {
+    const newDate = new Date(date);
+    newDate.setHours(0, 0, 0, 0);
+    return newDate;
   },
 
   /**
@@ -252,6 +286,23 @@ export const timeUtils = {
       console.error('Error generating available slots:', error);
       return [];
     }
+  },
+
+  /**
+   * 
+   * @returns רשימת הצעות זמנים
+   * מ-08:00 עד 20:00 כל 15 דקות
+   * לדוגמה: ["08:00", "08:15", "08:30", ..., "20:00"]
+   */
+  generateTimeSuggestions: () => {
+    const suggestions = [];
+    for (let hour = 8; hour <= 20; hour++) {
+      for (let minute = 0; minute < 60; minute += 15) {
+        const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        suggestions.push(timeStr);
+      }
+    }
+    return suggestions;
   },
 
   /**

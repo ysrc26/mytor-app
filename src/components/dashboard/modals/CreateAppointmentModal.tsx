@@ -2,6 +2,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import '@/styles/modal.css';
+import { CustomDatePicker } from '@/components/ui/CustomDatePicker';
+import { CustomTimePicker } from '@/components/ui/CustomTimePicker';
 import { X, Save, Loader2, Calendar, Clock, User, Phone, MessageCircle, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +40,8 @@ interface AppointmentForm {
   date: string;
   start_time: string;
   end_time: string;
+  duration_minutes?: string; // משך זמן בשירות מותאם אישית
+  custom_service_name?: string; // שירות מותאם אישית
   note: string;
 }
 
@@ -52,14 +57,20 @@ export const CreateAppointmentModal = ({
   const [appointmentForm, setAppointmentForm] = useState<AppointmentForm>({
     client_name: '',
     client_phone: '',
-    service_id: '',
-    date: prefilledDate,
-    start_time: prefilledTime,
+    service_id: services.length === 1 ? services[0].id : '',
+    custom_service_name: '',
+    duration_minutes: '',
+    date: prefilledDate || '',
+    start_time: prefilledTime || '',
     end_time: '',
     note: ''
   });
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
+  const [timeConflict, setTimeConflict] = useState<{
+    hasConflict: boolean;
+    message?: string;
+  }>({ hasConflict: false });
   // const [conflictError, setConflictError] = useState<string | null>(null);
 
   // Reset form when modal opens
@@ -77,12 +88,60 @@ export const CreateAppointmentModal = ({
     }
   }, [isOpen, services, prefilledDate, prefilledTime]);
 
+  useEffect(() => {
+    checkTimeConflictRealtime(
+      appointmentForm.date,
+      appointmentForm.start_time,
+      appointmentForm.service_id
+    );
+  }, [appointmentForm.date, appointmentForm.start_time, appointmentForm.service_id]);
+
   const handleInputChange = (field: keyof AppointmentForm, value: string) => {
     setAppointmentForm(prev => ({
       ...prev,
       [field]: value
     }));
   };
+
+  const checkTimeConflictRealtime = async (date: string, time: string, serviceId?: string) => {
+    if (!date || !time) {
+      setTimeConflict({ hasConflict: false });
+      return;
+    }
+
+    try {
+      let durationMinutes = 60;
+
+      if (serviceId) {
+        const service = services.find(s => s.id === serviceId);
+        if (service) durationMinutes = service.duration_minutes;
+      }
+
+      // 🔍 הוסף לוג
+      const newEndTime = timeUtils.minutesToTime(
+        timeUtils.timeToMinutes(time) + durationMinutes
+      );
+      console.log('🔍 Checking conflict: ', {
+        newSlot: `${time}-${newEndTime}`,
+        duration: durationMinutes
+      });
+
+      const result = await BusinessOwnerValidator.checkConflictsForOwner({
+        businessId,
+        date,
+        start_time: time,
+        durationMinutes
+      });
+
+      setTimeConflict({
+        hasConflict: result.hasConflict,
+        message: result.error
+      });
+    } catch (error) {
+      setTimeConflict({ hasConflict: false });
+    }
+  };
+
   const checkForConflicts = async () => {
     if (!appointmentForm.date || !appointmentForm.start_time) {
       return false;
@@ -114,6 +173,13 @@ export const CreateAppointmentModal = ({
         date: appointmentForm.date,
         start_time: appointmentForm.start_time,
         durationMinutes
+      });
+
+      console.log('🔧 DEBUG - Form state:', {
+        service_id: appointmentForm.service_id,
+        start_time: appointmentForm.start_time,
+        end_time: appointmentForm.end_time,
+        custom_service_name: appointmentForm.custom_service_name
       });
 
       if (conflictCheck.hasConflict) {
@@ -159,13 +225,24 @@ export const CreateAppointmentModal = ({
       return;
     }
 
-    if (!appointmentForm.service_id && !appointmentForm.end_time) {
-      showErrorToast('יש לבחור שירות או להגדיר שעת סיום');
-      return;
-    }
+    // אם לא נבחר שירות קיים, יש צורך בפרטי השירות המותאם
+    if (!appointmentForm.service_id) {
+      if (!(appointmentForm.custom_service_name ?? '').trim()) {
+        showErrorToast('שם השירות הוא שדה חובה');
+        return;
+      }
 
-    // אם אין שירות, וודא ששעת הסיום אחרי שעת ההתחלה
-    if (!appointmentForm.service_id && appointmentForm.end_time) {
+      if (!appointmentForm.duration_minutes) {
+        showErrorToast('משך זמן הוא שדה חובה');
+        return;
+      }
+
+      if (!appointmentForm.end_time) {
+        showErrorToast('שעת סיום היא שדה חובה');
+        return;
+      }
+
+      // וידוא ששעת הסיום אחרי שעת ההתחלה
       const startMinutes = timeUtils.timeToMinutes(appointmentForm.start_time);
       const endMinutes = timeUtils.timeToMinutes(appointmentForm.end_time);
 
@@ -176,9 +253,11 @@ export const CreateAppointmentModal = ({
     }
 
     // Check if appointment is in the past
-    const appointmentDateTime = new Date(`${appointmentForm.date}T${appointmentForm.start_time}`);
+    const appointmentDate = new Date(
+      appointmentForm.date + 'T' + appointmentForm.start_time + ':00'
+    );
     const now = new Date();
-    if (appointmentDateTime < now) {
+    if (appointmentDate < now) {
       showErrorToast('לא ניתן לקבוע תור בעבר');
       return;
     }
@@ -207,6 +286,13 @@ export const CreateAppointmentModal = ({
       if (appointmentForm.service_id) {
         (appointmentData as any).service_id = appointmentForm.service_id;
       } else {
+        // שירות מותאם - שמור בnote
+        const customServiceNote = `שירות: ${appointmentForm.custom_service_name}`;
+        const existingNote = appointmentForm.note.trim();
+        (appointmentData as any).note = existingNote
+          ? `${customServiceNote}\n${existingNote}`
+          : customServiceNote;
+
         (appointmentData as any).end_time = appointmentForm.end_time;
       }
 
@@ -214,10 +300,7 @@ export const CreateAppointmentModal = ({
         await onCreate(appointmentData);
         onClose();
       } catch (error) {
-        // אל תסגור את המודאל!
-        // אל תציג הודעת הצלחה!
         console.error('Error creating appointment:', error);
-        // השגיאה כבר מוצגת ב-onCreate
       }
     } catch (error) {
       showErrorToast(error instanceof Error ? error.message : 'שגיאה ביצירת התור');
@@ -232,20 +315,8 @@ export const CreateAppointmentModal = ({
     }
   };
 
-  // Generate time suggestions
-  const generateTimeSuggestions = () => {
-    const suggestions = [];
-    for (let hour = 8; hour <= 20; hour++) {
-      for (let minute = 0; minute < 60; minute += 30) {
-        const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-        suggestions.push(timeStr);
-      }
-    }
-    return suggestions;
-  };
-
-  const timeSuggestions = generateTimeSuggestions();
-  const todayDate = new Date().toISOString().split('T')[0];
+  const timeSuggestions = timeUtils.generateTimeSuggestions();
+  const todayDate = timeUtils.formatDateForAPI(new Date());
 
   if (!isOpen) return null;
 
@@ -283,6 +354,17 @@ export const CreateAppointmentModal = ({
           </div>
         )} */}
 
+        {/* Time Conflict Warning */}
+        {timeConflict.hasConflict && (
+          <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center gap-2 text-red-700">
+              <X className="w-4 h-4" />
+              <span className="font-medium">זמן תפוס</span>
+            </div>
+            <p className="text-red-600 text-sm mt-1">{timeConflict.message}</p>
+          </div>
+        )}
+
         {/* Content */}
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
           <div className="space-y-6">
@@ -318,106 +400,119 @@ export const CreateAppointmentModal = ({
                       value={appointmentForm.client_phone}
                       onChange={(e) => handleInputChange('client_phone', e.target.value)}
                       disabled={saving}
+                      className="pr-10" // הוסף padding מימין
                     />
-                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Phone className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Appointment Details */}
-            <div className="bg-green-50 rounded-xl p-4">
+            <div className="space-y-6">
               <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-green-600" />
                 פרטי התור
               </h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* תאריך */}
                 <div>
                   <Label htmlFor="appointment-date">תאריך *</Label>
-                  <Input
-                    id="appointment-date"
-                    type="date"
+                  <CustomDatePicker
                     value={appointmentForm.date}
-                    onChange={(e) => handleInputChange('date', e.target.value)}
-                    className="mt-1"
+                    onChange={(value) => handleInputChange('date', value)}
                     disabled={saving}
                     min={todayDate}
+                    className="mt-1"
                   />
                 </div>
 
+                {/* שעת התחלה */}
                 <div>
                   <Label htmlFor="appointment-time">שעה *</Label>
-                  <div className="relative mt-1">
-                    <Input
-                      id="appointment-time"
-                      type="time"
-                      value={appointmentForm.start_time}
-                      onChange={(e) => handleInputChange('start_time', e.target.value)}
-                      disabled={saving}
-                      list="time-suggestions"
-                    />
-                    <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <datalist id="time-suggestions">
-                      {timeSuggestions.map(time => (
-                        <option key={time} value={time} />
-                      ))}
-                    </datalist>
-                  </div>
+                  <CustomTimePicker
+                    value={appointmentForm.start_time}
+                    onChange={(value) => handleInputChange('start_time', value)}
+                    disabled={saving}
+                    suggestions={timeSuggestions}
+                    step={15}
+                    className="mt-1"
+                  />
                 </div>
 
-                {/* End Time */}
+                {/* בחירת שירות */}
+                <div className="md:col-span-2">
+                  <Label htmlFor="service-select">שירות</Label>
+                  <select
+                    id="service-select"
+                    value={appointmentForm.service_id}
+                    onChange={(e) => handleInputChange('service_id', e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    disabled={saving}
+                  >
+                    <option value="">שירות מותאם אישית</option>
+                    {services.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name}
+                        {service.duration_minutes && ` (${service.duration_minutes} דקות)`}
+                        {service.price && ` - ₪${service.price}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* שם שירות מותאם - רק אם לא נבחר שירות קיים */}
                 {!appointmentForm.service_id && (
                   <div>
-                    <Label htmlFor="appointment-end-time">שעת סיום *</Label>
-                    <div className="relative mt-1">
-                      <Input
-                        id="appointment-end-time"
-                        type="time"
-                        value={appointmentForm.end_time}
-                        onChange={(e) => handleInputChange('end_time', e.target.value)}
-                        disabled={saving}
-                      />
-                      <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    </div>
+                    <Label htmlFor="custom-service-name">שם השירות *</Label>
+                    <Input
+                      id="custom-service-name"
+                      value={appointmentForm.custom_service_name}
+                      onChange={(e) => handleInputChange('custom_service_name', e.target.value)}
+                      className="mt-1"
+                      placeholder="לדוגמה: טיפול פנים, עיסוי..."
+                      disabled={saving}
+                    />
                   </div>
                 )}
 
-                {/* Service Selection */}
-                {services.length > 0 && (
-                  <div className="md:col-span-2">
-                    <Label htmlFor="service-select">שירות (אופציונלי)</Label>
-                    <select
-                      id="service-select"
-                      value={appointmentForm.service_id}
-                      onChange={(e) => {
-                        handleInputChange('service_id', e.target.value);
-                        // איפוס שעת סיום כשבוחרים שירות
-                        if (e.target.value) {
-                          handleInputChange('end_time', '');
-                        }
-                      }}
-                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                {/* משך זמן - רק אם לא נבחר שירות קיים */}
+                {!appointmentForm.service_id && (
+                  <div>
+                    <Label htmlFor="duration">משך זמן (דקות) *</Label>
+                    <Input
+                      id="duration"
+                      type="number"
+                      value={appointmentForm.duration_minutes}
+                      onChange={(e) => handleInputChange('duration_minutes', e.target.value)}
+                      className="mt-1"
+                      placeholder="60"
+                      min="15"
+                      max="480"
+                      step="15"
                       disabled={saving}
-                    >
-                      <option value="">ללא שירות מוגדר - הגדר שעת סיום ידנית</option>
-                      {services.filter(s => s.is_active).map((service) => (
-                        <option key={service.id} value={service.id}>
-                          {service.name} ({service.duration_minutes} דקות)
-                          {service.price && service.price > 0 && ` - ₪${service.price}`}
-                        </option>
-                      ))}
-                    </select>
-                    {services.length === 0 && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        אין שירותים פעילים. ניתן להוסיף שירותים בהגדרות העסק.
-                      </p>
-                    )}
+                    />
+                  </div>
+                )}
+
+                {/* שעת סיום - רק אם לא נבחר שירות */}
+                {!appointmentForm.service_id && (
+                  <div className="md:col-span-2">
+                    <Label htmlFor="appointment-end-time">שעת סיום *</Label>
+                    <CustomTimePicker
+                      value={appointmentForm.end_time}
+                      onChange={(value) => handleInputChange('end_time', value)}
+                      disabled={saving}
+                      min={appointmentForm.start_time}
+                      suggestions={timeSuggestions}
+                      step={15}
+                      className="mt-1"
+                    />
                   </div>
                 )}
               </div>
             </div>
-
             {/* Notes */}
             <div>
               <Label htmlFor="appointment-note" className="flex items-center gap-2">

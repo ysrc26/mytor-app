@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { CustomDatePicker } from '@/components/ui/CustomDatePicker';
+import { CustomTimePicker } from '@/components/ui/CustomTimePicker';
 import { BusinessOwnerValidator, checkBusinessOwnerConflicts } from '@/lib/appointment-utils';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 import type { Appointment, Service } from '@/lib/types';
@@ -28,8 +30,19 @@ interface AppointmentForm {
   date: string;
   start_time: string;
   end_time?: string;
+  duration_minutes?: string;
+  custom_service_name?: string;
   note: string;
 }
+
+const extractCustomServiceName = (note: string): string => {
+  const match = note.match(/^שירות: (.+?)(\n|$)/);
+  return match ? match[1] : '';
+};
+
+const removeCustomServiceFromNote = (note: string): string => {
+  return note.replace(/^שירות: .+?(\n|$)/, '').trim();
+};
 
 export const EditAppointmentModal = ({
   isOpen,
@@ -43,11 +56,13 @@ export const EditAppointmentModal = ({
     client_name: '',
     client_phone: '',
     service_id: '',
+    custom_service_name: '', // 👈 הוסף את זה
     date: '',
     start_time: '',
     end_time: '',
     note: ''
   });
+
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
 
@@ -58,10 +73,11 @@ export const EditAppointmentModal = ({
         client_name: appointment.client_name || '',
         client_phone: appointment.client_phone || '',
         service_id: appointment.service_id || '',
+        custom_service_name: extractCustomServiceName(appointment.note || ''),
         date: appointment.date || '',
         start_time: appointment.start_time || '',
         end_time: appointment.end_time || '',
-        note: appointment.note || ''
+        note: removeCustomServiceFromNote(appointment.note || '')
       });
     }
   }, [isOpen, appointment]);
@@ -74,30 +90,14 @@ export const EditAppointmentModal = ({
   };
 
   const checkForConflicts = async () => {
-    if (!appointmentForm.service_id || !appointmentForm.date || !appointmentForm.start_time) {
+    if (!appointmentForm.date || !appointmentForm.start_time) {
       return false;
     }
 
-    // חישוב duration בדקות
-    let durationMinutes: number;
-
-    if (appointmentForm.service_id) {
-      // אם נבחר שירות - קח את המשך מהשירות
-      const service = services.find(s => s.id === appointmentForm.service_id);
-      if (!service) return false;
-      durationMinutes = service.duration_minutes;
-    } else if (appointmentForm.end_time) {
-      // אם לא נבחר שירות - חשב duration לפי start_time ו-end_time
-      const startMinutes = timeUtils.timeToMinutes(appointmentForm.start_time);
-      const endMinutes = timeUtils.timeToMinutes(appointmentForm.end_time);
-      durationMinutes = endMinutes - startMinutes;
-    } else {
-      return false;
-    }
+    const durationMinutes = getAppointmentDuration();
 
     try {
       setValidating(true);
-      // setConflictError(null);
 
       const conflictCheck = await BusinessOwnerValidator.checkConflictsForOwner({
         businessId,
@@ -152,37 +152,73 @@ export const EditAppointmentModal = ({
       return;
     }
 
+    // אם לא נבחר שירות קיים, בדוק שירות מותאם
+    if (!appointmentForm.service_id) {
+      if (!(appointmentForm.custom_service_name ?? '').trim()) {
+        showErrorToast('שם השירות הוא שדה חובה');
+        return;
+      }
+    }
+
     // Check if appointment is in the past
-    const appointmentDateTime = new Date(`${appointmentForm.date}T${appointmentForm.start_time}`);
+    const appointmentDate = new Date(
+      appointmentForm.date + 'T' + appointmentForm.start_time + ':00'
+    );
     const now = new Date();
-    if (appointmentDateTime < now) {
+    if (appointmentDate < now) {
       showErrorToast('לא ניתן לקבוע תור בעבר');
       return;
     }
 
-    // Check for conflicts
-    const conflictCheck = await checkBusinessOwnerConflicts(
-      businessId,
-      appointmentForm.service_id,
-      appointmentForm.date,
-      appointmentForm.start_time,
-      appointment.id // ✅ חשוב! לא לכלול את התור הנוכחי בבדיקה
-    );
-
-    if (conflictCheck.hasConflict) {
-      showErrorToast(conflictCheck.error || 'יש חפיפה עם תור קיים');
-      return;
+    // בדיקת חפיפות אם יש שירות
+    if (appointmentForm.service_id) {
+      const hasConflict = await checkForConflicts();
+      if (hasConflict) {
+        return;
+      }
     }
 
     try {
       setSaving(true);
 
-      // Only send changed fields
+      // הכנת הנתונים לעדכון
       const updates: any = {};
-      if (appointmentForm.date !== appointment.date) updates.date = appointmentForm.date;
-      if (appointmentForm.start_time !== appointment.start_time) updates.start_time = appointmentForm.start_time;
-      if (appointmentForm.service_id !== appointment.service_id) updates.service_id = appointmentForm.service_id;
-      if (appointmentForm.note !== (appointment.note || '')) updates.note = appointmentForm.note;
+
+      // בדיקת שינויים בפרטים הבסיסיים
+      if (appointmentForm.client_name.trim() !== appointment.client_name) {
+        updates.client_name = appointmentForm.client_name.trim();
+      }
+
+      if (appointmentForm.client_phone.trim() !== appointment.client_phone) {
+        updates.client_phone = appointmentForm.client_phone.trim();
+      }
+
+      if (appointmentForm.date !== appointment.date) {
+        updates.date = appointmentForm.date;
+      }
+
+      if (appointmentForm.start_time !== appointment.start_time) {
+        updates.start_time = appointmentForm.start_time;
+      }
+
+      if (appointmentForm.service_id !== (appointment.service_id || '')) {
+        updates.service_id = appointmentForm.service_id || null;
+      }
+
+      // טיפול בהערות - כולל שירות מותאם
+      let newNote = appointmentForm.note.trim();
+
+      // אם יש שירות מותאם, הוסף אותו לתחילת ההערה
+      if (!appointmentForm.service_id && (appointmentForm.custom_service_name ?? '').trim()) {
+        const customServiceNote = `שירות: ${(appointmentForm.custom_service_name ?? '').trim()}`;
+        newNote = newNote ? `${customServiceNote}\n${newNote}` : customServiceNote;
+      }
+
+      // בדיקה אם השערה השתנתה
+      const originalNote = appointment.note || '';
+      if (newNote !== originalNote) {
+        updates.note = newNote;
+      }
 
       if (Object.keys(updates).length === 0) {
         showErrorToast('לא בוצעו שינויים');
@@ -206,9 +242,25 @@ export const EditAppointmentModal = ({
   };
 
   const isAppointmentPast = appointment ?
-    new Date(`${appointment.date}T${appointment.start_time}`) < new Date() : false;
+    new Date(appointment.date + 'T' + appointment.start_time + ':00') < new Date() :
+    false;
 
-  if (!isOpen || !appointment) return null;
+  // Generate time suggestions
+  const timeSuggestions = timeUtils.generateTimeSuggestions();
+
+  const getAppointmentDuration = () => {
+    if (appointmentForm.service_id) {
+      const service = services.find(s => s.id === appointmentForm.service_id);
+      return service?.duration_minutes || 60;
+    } else if (appointmentForm.end_time && appointmentForm.start_time) {
+      const startMinutes = timeUtils.timeToMinutes(appointmentForm.start_time);
+      const endMinutes = timeUtils.timeToMinutes(appointmentForm.end_time);
+      return endMinutes - startMinutes;
+    }
+    return 60; // ברירת מחדל
+  };
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -217,10 +269,11 @@ export const EditAppointmentModal = ({
     >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-6">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6">
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-2xl font-bold">עריכת תור</h2>
+              <p className="text-blue-100 mt-1">עדכן פרטי התור</p>
             </div>
             <button
               onClick={onClose}
@@ -233,15 +286,12 @@ export const EditAppointmentModal = ({
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+        <div className="p-6 max-h-[calc(90vh-140px)] overflow-y-auto">
+          {/* Past appointment warning */}
           {isAppointmentPast && (
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
-              <div className="flex items-center gap-2 text-orange-700">
-                <Clock className="w-4 h-4" />
-                <span className="font-medium">תור שעבר</span>
-              </div>
-              <p className="text-orange-600 text-sm mt-1">
-                לא ניתן לערוך תור שכבר עבר. ניתן רק לצפות בפרטים.
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-amber-800 text-sm">
+                ⚠️ תור זה התקיים בעבר - ניתן רק לצפות בפרטים.
               </p>
             </div>
           )}
@@ -295,33 +345,31 @@ export const EditAppointmentModal = ({
               </h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* תאריך */}
                 <div>
                   <Label htmlFor="appointment-date">תאריך *</Label>
-                  <Input
-                    id="appointment-date"
-                    type="date"
+                  <CustomDatePicker
                     value={appointmentForm.date}
-                    onChange={(e) => handleInputChange('date', e.target.value)}
-                    className="mt-1"
+                    onChange={(value) => handleInputChange('date', value)}
                     disabled={saving || isAppointmentPast}
                     readOnly={isAppointmentPast}
                     min={new Date().toISOString().split('T')[0]}
+                    className="mt-1"
                   />
                 </div>
 
+                {/* שעה */}
                 <div>
                   <Label htmlFor="appointment-time">שעה *</Label>
-                  <div className="relative mt-1">
-                    <Input
-                      id="appointment-time"
-                      type="time"
-                      value={appointmentForm.start_time}
-                      onChange={(e) => handleInputChange('start_time', e.target.value)}
-                      disabled={saving || isAppointmentPast}
-                      readOnly={isAppointmentPast}
-                    />
-                    <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  </div>
+                  <CustomTimePicker
+                    value={appointmentForm.start_time}
+                    onChange={(value) => handleInputChange('start_time', value)}
+                    disabled={saving || isAppointmentPast}
+                    readOnly={isAppointmentPast}
+                    suggestions={timeSuggestions}
+                    step={15}
+                    className="mt-1"
+                  />
                 </div>
 
                 {/* Service Selection */}
@@ -332,17 +380,34 @@ export const EditAppointmentModal = ({
                       id="service-select"
                       value={appointmentForm.service_id}
                       onChange={(e) => handleInputChange('service_id', e.target.value)}
-                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       disabled={saving || isAppointmentPast}
                     >
-                      <option value="">ללא שירות מוגדר</option>
+                      <option value="">שירות מותאם אישית</option>
                       {services.map((service) => (
                         <option key={service.id} value={service.id}>
-                          {service.name} ({service.duration_minutes} דקות)
-                          {service.price && service.price > 0 && ` - ₪${service.price}`}
+                          {service.name}
+                          {service.duration_minutes && ` (${service.duration_minutes} דקות)`}
+                          {service.price && ` - ₪${service.price}`}
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+
+                {/* שירות מותאם - רק אם לא נבחר שירות קיים */}
+                {!appointmentForm.service_id && (
+                  <div className="md:col-span-2">
+                    <Label htmlFor="custom-service-name">שם השירות *</Label>
+                    <Input
+                      id="custom-service-name"
+                      value={appointmentForm.custom_service_name}
+                      onChange={(e) => handleInputChange('custom_service_name', e.target.value)}
+                      className="mt-1"
+                      placeholder="לדוגמה: טיפול פנים, עיסוי..."
+                      disabled={saving || isAppointmentPast}
+                      readOnly={isAppointmentPast}
+                    />
                   </div>
                 )}
               </div>
@@ -368,36 +433,41 @@ export const EditAppointmentModal = ({
         </div>
 
         {/* Footer */}
-        {!isAppointmentPast && (
-          <div className="border-t border-gray-200 p-6 bg-gray-50">
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={onClose}
-                disabled={saving}
-              >
-                ביטול
-              </Button>
+        <div className="border-t border-gray-200 p-6 bg-gray-50">
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={onClose}
+              disabled={saving}
+            >
+              {isAppointmentPast ? 'סגור' : 'ביטול'}
+            </Button>
+            {!isAppointmentPast && (
               <Button
                 onClick={handleSave}
-                disabled={saving}
-                className="bg-green-600 hover:bg-green-700"
+                disabled={saving || validating}
+                className="bg-blue-600 hover:bg-blue-700"
               >
                 {saving ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    <Loader2 className="w-4 h-4 animate-spin ml-2" />
                     שומר...
+                  </>
+                ) : validating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin ml-2" />
+                    בודק חפיפות...
                   </>
                 ) : (
                   <>
-                    <Save className="w-4 h-4 mr-2" />
-                    שמירה
+                    <Save className="w-4 h-4 ml-2" />
+                    שמור שינויים
                   </>
                 )}
               </Button>
-            </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

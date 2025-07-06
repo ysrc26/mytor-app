@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Camera, Upload, X, User, Trash2 } from 'lucide-react';
+import { Camera, Upload, X, User, Trash2, Edit, Phone, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 import type { Business } from '@/lib/types';

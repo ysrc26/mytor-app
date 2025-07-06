@@ -193,6 +193,11 @@ export interface UserPreferences {
 }
 
 export interface Business {
+  gallery_images: never[];
+  rating: string;
+  total_services: number;
+  total_appointments: number;
+  address: string;
   id: string;
   user_id: string;
   name: string;

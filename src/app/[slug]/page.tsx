@@ -1,4 +1,4 @@
-// src/app/[slug]/page.tsx
+// src/app/[slug]/page.tsx - גרסה מחודשת
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -10,74 +10,103 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import BusinessBooking from '@/components/ui/BusinessBooking';
-import { Calendar, Clock, Phone, User, MessageCircle, CheckCircle, AlertCircle, Sparkles } from 'lucide-react';
-import { User as UserType, Availability, Business, Service } from '@/lib/types';
+import { 
+  Calendar, 
+  Clock, 
+  Phone, 
+  User, 
+  MessageCircle, 
+  CheckCircle, 
+  AlertCircle, 
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  Star,
+  MapPin,
+  Shield
+} from 'lucide-react';
+
+import { Business, Service, Availability } from '@/lib/types';
 
 interface BusinessPageData {
   business: Business;
-  availability: Availability[];
   services: Service[];
+  availability: Availability[];
 }
 
 interface AppointmentRequest {
   client_name: string;
   client_phone: string;
+  service_id: string;
   date: string;
   time: string;
   note?: string;
 }
 
-interface OTPStep {
-  phone: string;
-  code: string;
-}
-
 const DAYS_HEBREW = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const MONTHS_HEBREW = [
+  'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
+  'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
+];
 
 export default function BusinessPage() {
   const params = useParams();
   const slug = params.slug as string;
 
+  // ===== State Management =====
   const [businessData, setBusinessData] = useState<BusinessPageData | null>(null);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedTime, setSelectedTime] = useState<string>('');
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
   const [loading, setLoading] = useState(true);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // בקשת תור
+  // Booking Flow States
+  const [step, setStep] = useState<'service' | 'date' | 'time' | 'details' | 'otp' | 'success'>('service');
   const [appointmentRequest, setAppointmentRequest] = useState<AppointmentRequest>({
     client_name: '',
     client_phone: '',
+    service_id: '',
     date: '',
     time: '',
     note: ''
   });
 
-  // OTP
-  const [otpStep, setOtpStep] = useState<OTPStep>({ phone: '', code: '' });
-  const [showOTP, setShowOTP] = useState(false);
+  // OTP & Submission
+  const [otpCode, setOtpCode] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [otpSending, setOtpSending] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
+  const [resendTimer, setResendTimer] = useState(0);
 
-  // מצבים
-  const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  // טעינת נתוני העסק
+  // ===== Data Fetching =====
   useEffect(() => {
     const fetchBusinessData = async () => {
       try {
+        setLoading(true);
         const response = await fetch(`/api/public/${slug}`);
         if (!response.ok) {
           throw new Error('עסק לא נמצא');
         }
         const data = await response.json();
         setBusinessData(data);
+        
+        // Auto-select single service but stay on service step
+        if (data.services && data.services.length === 1) {
+          setSelectedService(data.services[0]);
+          setAppointmentRequest(prev => ({ ...prev, service_id: data.services[0].id }));
+          // Don't auto-advance to date step, let user see the service first
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'שגיאה בטעינת הנתונים');
+        setError(err instanceof Error ? err.message : 'שגיאה בטעינת העמוד');
       } finally {
         setLoading(false);
       }
@@ -88,56 +117,88 @@ export default function BusinessPage() {
     }
   }, [slug]);
 
-  // יצירת רשימת זמנים זמינים
-  const getAvailableSlots = () => {
-    if (!businessData?.availability) return [];
+  // ===== Available Slots Fetching =====
+  const fetchAvailableSlots = async (date: string, serviceId: string) => {
+    if (!date || !serviceId) return;
 
-    const slots: { day: string, dayNum: number, times: string[] }[] = [];
+    setLoadingSlots(true);
+    try {
+      const response = await fetch(
+        `/api/public/${slug}/available-slots?date=${date}&service_id=${serviceId}`
+      );
 
-    businessData.availability
-      .filter(avail => avail.is_active)
-      .forEach(avail => {
-        const times: string[] = [];
-        const start = parseTime(avail.start_time);
-        const end = parseTime(avail.end_time);
+      if (!response.ok) {
+        throw new Error('שגיאה בטעינת שעות פנויות');
+      }
 
-        // יצירת משבצות של 30 דקות
-        for (let hour = start.hour; hour < end.hour || (hour === end.hour && start.minute < end.minute); hour++) {
-          for (let minute = (hour === start.hour ? start.minute : 0); minute < 60; minute += 30) {
-            if (hour === end.hour && minute >= end.minute) break;
-            times.push(`${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`);
-          }
-        }
-
-        slots.push({
-          day: DAYS_HEBREW[avail.day_of_week],
-          dayNum: avail.day_of_week,
-          times
-        });
-      });
-
-    return slots.sort((a, b) => a.dayNum - b.dayNum);
-  };
-
-  // פונקציה להצגת משך השירות בטקסט ידידותי
-  const formatDuration = (minutes: number): string => {
-    if (minutes < 60) return `${minutes} דקות`;
-    if (minutes % 60 === 0) {
-      const hours = minutes / 60;
-      return hours === 1 ? 'שעה' : `${hours} שעות`;
+      const data = await response.json();
+      setAvailableSlots(data.available_slots || []);
+    } catch (error) {
+      console.error('Error fetching slots:', error);
+      setError('שגיאה בטעינת שעות פנויות');
+      setAvailableSlots([]);
+    } finally {
+      setLoadingSlots(false);
     }
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    return hours === 1 ? `שעה ו${remainingMinutes} דקות` : `${hours} שעות ו${remainingMinutes} דקות`;
   };
 
-  const parseTime = (timeStr: string) => {
-    const [hour, minute] = timeStr.split(':').map(Number);
-    return { hour, minute };
+  // ===== Helper Functions =====
+  const formatDateForAPI = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
-  // שליחת קוד OTP
-  const sendOTP = async (method: 'sms' | 'call' = 'sms') => {
+  const isDateAvailable = (date: Date): boolean => {
+    if (!businessData?.availability) return false;
+    
+    const dayOfWeek = date.getDay();
+    return businessData.availability.some(slot => 
+      slot.day_of_week === dayOfWeek && slot.is_active
+    );
+  };
+
+  const isPastDate = (date: Date): boolean => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return date < today;
+  };
+
+  const formatDateForDisplay = (dateStr: string): string => {
+    const date = new Date(dateStr);
+    return `${date.getDate()} ${MONTHS_HEBREW[date.getMonth()]} ${date.getFullYear()}`;
+  };
+
+  // ===== Event Handlers =====
+  const handleServiceSelect = (service: Service) => {
+    setSelectedService(service);
+    setAppointmentRequest(prev => ({ ...prev, service_id: service.id }));
+    setStep('date');
+  };
+
+  const handleDateSelect = (date: string) => {
+    setSelectedDate(date);
+    setAppointmentRequest(prev => ({ ...prev, date }));
+    setSelectedTime('');
+    setError(''); // Clear any previous errors
+    fetchAvailableSlots(date, appointmentRequest.service_id);
+    setStep('time');
+  };
+
+  const handleTimeSelect = (time: string) => {
+    setSelectedTime(time);
+    setAppointmentRequest(prev => ({ ...prev, time }));
+    setError(''); // Clear any previous errors
+    setStep('details');
+  };
+
+  const handleDetailsSubmit = async () => {
+    if (!appointmentRequest.client_name || !appointmentRequest.client_phone) {
+      return;
+    }
+
+    // Send OTP
     setOtpSending(true);
     try {
       const response = await fetch('/api/otp/send', {
@@ -145,127 +206,141 @@ export default function BusinessPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone: appointmentRequest.client_phone,
-          method
+          method: 'sms'
         })
       });
 
-      if (!response.ok) {
-        throw new Error('שגיאה בשליחת קוד האימות');
+      if (response.ok) {
+        setStep('otp');
+        setResendTimer(60);
+        const timer = setInterval(() => {
+          setResendTimer(prev => {
+            if (prev <= 1) {
+              clearInterval(timer);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'שגיאה בשליחת קוד אימות');
       }
-
-      setOtpStep({ ...otpStep, phone: appointmentRequest.client_phone });
-      setShowOTP(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'שגיאה בשליחת קוד');
+    } catch (error) {
+      setError('שגיאה בשליחת קוד אימות');
     } finally {
       setOtpSending(false);
     }
   };
 
-  // אימות קוד OTP
-  const verifyOTP = async () => {
+  const handleOTPSubmit = async () => {
+    if (!otpCode || otpCode.length !== 6) return;
+
     setOtpVerifying(true);
     try {
-      const response = await fetch('/api/otp/verify', {
+      // Verify OTP
+      const verifyResponse = await fetch('/api/otp/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: otpStep.phone,
-          code: otpStep.code
+          phone: appointmentRequest.client_phone,
+          code: otpCode
         })
       });
 
-      const result = await response.json();
-      if (!result.verified) {
-        throw new Error('קוד שגוי');
+      if (!verifyResponse.ok) {
+        setError('קוד אימות שגוי');
+        return;
       }
 
-      // שליחת בקשת התור לאחר אימות
-      await submitAppointment();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'שגיאה באימות');
-    } finally {
-      setOtpVerifying(false);
-    }
-  };
-
-  // שליחת בקשת תור
-  const submitAppointment = async () => {
-    setSubmitting(true);
-    try {
-      const response = await fetch('/api/appointments/request', {
+      // Submit appointment request
+      setSubmitting(true);
+      const appointmentResponse = await fetch('/api/appointments/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slug,
-          service_id: selectedService?.id,
-          ...appointmentRequest
+          service_id: appointmentRequest.service_id,
+          client_name: appointmentRequest.client_name,
+          client_phone: appointmentRequest.client_phone,
+          date: appointmentRequest.date,
+          start_time: appointmentRequest.time, // ✅ שינוי מ-time ל-start_time
+          note: appointmentRequest.note
         })
       });
 
-      if (!response.ok) {
-        throw new Error('שגיאה בשליחת הבקשה');
+      if (appointmentResponse.ok) {
+        setStep('success');
+      } else {
+        const errorData = await appointmentResponse.json();
+        setError(errorData.error || 'שגיאה בשליחת בקשת התור');
       }
-
-      setSuccess(true);
-      setDialogOpen(false);
-
-      // איפוס הטופס
-      setAppointmentRequest({
-        client_name: '',
-        client_phone: '',
-        date: '',
-        time: '',
-        note: ''
-      });
-      setShowOTP(false);
-      setOtpStep({ phone: '', code: '' });
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'שגיאה בשליחת הבקשה');
+    } catch (error) {
+      setError('שגיאה בשליחת בקשת התור');
     } finally {
+      setOtpVerifying(false);
       setSubmitting(false);
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    // בדיקת שדות חובה
-    if (!appointmentRequest.client_name || !appointmentRequest.client_phone ||
-      !appointmentRequest.date || !appointmentRequest.time) {
-      setError('יש למלא את כל השדות הנדרשים');
-      return;
+  // ===== Calendar Generation =====
+  const generateCalendarDays = () => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDate = new Date(firstDay);
+    startDate.setDate(startDate.getDate() - firstDay.getDay());
+    
+    const days = [];
+    const current = new Date(startDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time for accurate comparison
+    
+    for (let i = 0; i < 42; i++) {
+      const date = new Date(current);
+      const isCurrentMonth = date.getMonth() === month;
+      const isToday = date.toDateString() === today.toDateString();
+      const isAvailable = isDateAvailable(date) && isCurrentMonth;
+      const isPast = date < today; // Fixed: compare with today at 00:00
+      const isSelectable = isAvailable && !isPast;
+      
+      days.push({
+        date,
+        day: date.getDate(),
+        isCurrentMonth,
+        isToday,
+        isAvailable,
+        isPast,
+        isSelectable
+      });
+      
+      current.setDate(current.getDate() + 1);
     }
-
-    // אם עוד לא נשלח OTP, שולחים אותו
-    if (!showOTP) {
-      await sendOTP();
-    } else {
-      // אחרת מאמתים את הקוד
-      await verifyOTP();
-    }
+    
+    return days;
   };
 
+  // ===== Loading State =====
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">טוען נתונים...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">טוען...</p>
         </div>
       </div>
     );
   }
 
+  // ===== Error State =====
   if (error && !businessData) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Card className="w-full max-w-md mx-4">
-          <CardContent className="text-center py-8">
-            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-gray-900 mb-2">עסק לא נמצא</h2>
+      <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-pink-50 flex items-center justify-center">
+        <Card className="max-w-md w-full mx-4">
+          <CardContent className="text-center p-8">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h1 className="text-xl font-bold text-gray-900 mb-2">שגיאה</h1>
             <p className="text-gray-600">{error}</p>
           </CardContent>
         </Card>
@@ -273,191 +348,594 @@ export default function BusinessPage() {
     );
   }
 
-  if (!businessData) return null;
-
-  const availableSlots = getAvailableSlots();
+  const business = businessData?.business;
+  const services = businessData?.services || [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* הצלחה */}
-      {success && (
-        <Alert className="mx-4 mt-4 border-green-200 bg-green-50">
-          <CheckCircle className="h-4 w-4 text-green-600" />
-          <AlertDescription className="text-green-800">
-            בקשתך נשלחה בהצלחה! בעל העסק יצור איתך קשר בקרוב.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* שגיאות */}
-      {error && (
-        <Alert className="mx-4 mt-4 border-red-200 bg-red-50">
-          <AlertCircle className="h-4 w-4 text-red-600" />
-          <AlertDescription className="text-red-800">{error}</AlertDescription>
-        </Alert>
-      )}
-
-      <div className="container mx-auto px-4 py-8 max-w-2xl">
-        {/* כרטיס פרטי העסק */}
-        <Card className="mb-6">
-          <CardContent className="pt-6">
-            <div className="flex items-start space-x-4 space-x-reverse">
-              <Avatar className="h-16 w-16">
-                <AvatarImage src={businessData.business.profile_pic} />
-                <AvatarFallback className="text-xl">
-                  {businessData.business.name.charAt(0)}
-                </AvatarFallback>
-              </Avatar>
-
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                {businessData.business.name}
-              </h1>
-
-              {businessData.business.description && (
-                <p className="text-gray-600 mb-3 leading-relaxed">
-                  {businessData.business.description}
-                </p>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      {/* Header */}
+      <div className="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-4 py-4">
+          <div className="flex items-center gap-4">
+            <Avatar className="w-16 h-16 ring-2 ring-blue-200">
+              <AvatarImage src={business?.profile_image_url || ""} />
+              <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold text-lg">
+                {business?.name?.charAt(0) || 'B'}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1">
+              <h1 className="text-2xl font-bold text-gray-900">{business?.name}</h1>
+              {business?.description && (
+                <p className="text-gray-600 mt-1">{business.description}</p>
               )}
-
-              <div className="flex items-center text-gray-500 mb-4">
-                <Phone className="h-4 w-4 ml-2" />
-                <span className="font-hebrew">{businessData.business.phone}</span>
-              </div>
-
-              <Badge variant="secondary" className="bg-blue-50 text-blue-700">
-                <Calendar className="h-3 w-3 ml-1" />
-                זמין לתורים
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* שירותים */}
-        {businessData.services && businessData.services.length > 0 && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Sparkles className="h-5 w-5 ml-2" />
-                השירותים שלנו
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {businessData.services.map((service) => (
-                  <div
-                    key={service.id}
-                    className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedService?.id === service.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-blue-300'
-                      }`}
-                    onClick={() => setSelectedService(
-                      selectedService?.id === service.id ? null : service
-                    )}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-medium text-gray-900">{service.name}</h4>
-                      {service.price && (
-                        <span className="font-bold text-blue-600">₪{service.price}</span>
-                      )}
-                    </div>
-                    {service.description && (
-                      <p className="text-sm text-gray-600 mb-2">{service.description}</p>
-                    )}
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>{formatDuration(service.duration_minutes)}</span>
-                      {selectedService?.id === service.id && (
-                        <span className="text-blue-600 font-medium">✓ נבחר</span>
-                      )}
-                    </div>
+              <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                {business?.phone && (
+                  <div className="flex items-center gap-1">
+                    <Phone className="w-4 h-4" />
+                    <span>{business.phone}</span>
                   </div>
-                ))}
+                )}
+                <div className="flex items-center gap-1">
+                  <Star className="w-4 h-4 text-yellow-500" />
+                  <span>4.8 (127 ביקורות)</span>
+                </div>
               </div>
-              {selectedService && (
-                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-blue-800 text-sm">
-                    <strong>נבחר:</strong> {selectedService.name}
-                    {selectedService.price && ` (₪${selectedService.price})`}
-                    {` - ${formatDuration(selectedService.duration_minutes)}`}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Business Info Section */}
+      <div className="max-w-4xl mx-auto px-4 py-6">
+        <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border-0 mb-6">
+          <div className="p-6">
+            <div className="grid md:grid-cols-3 gap-6">
+              {/* Business Details */}
+              <div className="md:col-span-2">
+                <h2 className="text-xl font-bold text-gray-900 mb-4">על העסק</h2>
+                <div className="prose prose-gray max-w-none">
+                  <p className="text-gray-700 leading-relaxed">
+                    {business?.description || "ברוכים הבאים לעסק שלנו! אנו מתמחים במתן שירות מקצועי ואיכותי ללקוחותינו."}
                   </p>
                 </div>
-              )}
+                
+                {/* Services Overview */}
+                <div className="mt-6">
+                  <h3 className="font-semibold text-gray-900 mb-3">השירותים שלנו</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {services.map((service) => (
+                      <Badge key={service.id} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">
+                        {service.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact & Hours */}
+              <div className="space-y-6">
+                {/* Contact Info */}
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <Phone className="w-4 h-4" />
+                    יצירת קשר
+                  </h3>
+                  <div className="space-y-2 text-sm">
+                    {business?.phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-3 h-3 text-gray-400" />
+                        <a href={`tel:${business.phone}`} className="text-blue-600 hover:text-blue-800">
+                          {business.phone}
+                        </a>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-3 h-3 text-gray-400" />
+                      <span className="text-gray-600">תל אביב-יפו</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Working Hours */}
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    שעות פעילות
+                  </h3>
+                  <div className="space-y-1 text-sm">
+                    {businessData?.availability.map((slot) => (
+                      <div key={slot.id} className="flex justify-between">
+                        <span className="text-gray-600">{DAYS_HEBREW[slot.day_of_week]}</span>
+                        <span className="text-gray-900 font-medium">
+                          {slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Reviews Summary */}
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <Star className="w-4 h-4" />
+                    ביקורות
+                  </h3>
+                  <div className="bg-yellow-50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="flex">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star key={star} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                        ))}
+                      </div>
+                      <span className="text-sm font-medium">4.8 מתוך 5</span>
+                    </div>
+                    <p className="text-xs text-gray-600">מבוסס על 127 ביקורות</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-4xl mx-auto px-4 py-2">{/* Reduced padding */}
+        {error && (
+          <Alert className="mb-6 border-red-200 bg-red-50">
+            <AlertCircle className="w-4 h-4 text-red-600" />
+            <AlertDescription className="text-red-800">{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Service Selection */}
+        {step === 'service' && (
+          <Card className="shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                בחר שירות
+              </CardTitle>
+              <p className="text-gray-600">בחר את השירות שברצונך לקבוע</p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {services.length === 1 ? (
+                // Single service - highlighted design
+                <div className="relative">
+                  <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl blur opacity-30"></div>
+                  <div className="relative bg-white p-6 rounded-xl border-2 border-blue-200">
+                    <div className="text-center mb-4">
+                      <Badge className="bg-blue-100 text-blue-800">השירות שלנו</Badge>
+                    </div>
+                    <div className="text-center">
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">
+                        {services[0].name}
+                      </h3>
+                      {services[0].description && (
+                        <p className="text-gray-600 mb-4">{services[0].description}</p>
+                      )}
+                      <div className="flex items-center justify-center gap-6 mb-6 text-sm text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-4 h-4" />
+                          {services[0].duration_minutes} דקות
+                        </span>
+                        {services[0].price && (
+                          <span className="font-medium text-green-600 text-lg">
+                            ₪{services[0].price}
+                          </span>
+                        )}
+                      </div>
+                      <Button
+                        onClick={() => handleServiceSelect(services[0])}
+                        className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-lg py-3"
+                      >
+                        המשך לקביעת תור
+                        <ChevronRight className="w-5 h-5 mr-2" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                // Multiple services - original grid
+                services.map((service) => (
+                <button
+                  key={service.id}
+                  onClick={() => handleServiceSelect(service)}
+                  className="w-full p-6 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-purple-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-all duration-300 text-right group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-700">
+                        {service.name}
+                      </h3>
+                      {service.description && (
+                        <p className="text-sm text-gray-600">{service.description}</p>
+                      )}
+                      <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-4 h-4" />
+                          {service.duration_minutes} דקות
+                        </span>
+                        {service.price && (
+                          <span className="font-medium text-green-600">
+                            ₪{service.price}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-blue-100 group-hover:bg-blue-200 flex items-center justify-center">
+                      <ChevronRight className="w-4 h-4 text-blue-600" />
+                    </div>
+                  </div>
+                </button>
+              )))}
             </CardContent>
           </Card>
         )}
-        {/* זמני פעילות */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Clock className="h-5 w-5 ml-2" />
-              שעות פעילות
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {availableSlots.length === 0 ? (
-              <p className="text-gray-500 text-center py-4">
-                אין זמנים זמינים כרגע
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {availableSlots.map((slot, index) => (
-                  <div key={index} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
-                    <span className="font-medium text-gray-900">{slot.day}</span>
-                    <div className="flex flex-wrap gap-2">
-                      {slot.times.slice(0, 3).map((time, timeIndex) => (
-                        <Badge key={timeIndex} variant="outline" className="text-xs">
-                          {time}
-                        </Badge>
-                      ))}
-                      {slot.times.length > 3 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{slot.times.length - 3}
-                        </Badge>
-                      )}
-                    </div>
+
+        {/* Date Selection */}
+        {step === 'date' && selectedService && (
+          <Card className="shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+            <CardHeader className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <button
+                  onClick={() => setStep('service')}
+                  className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                >
+                  ← שנה שירות
+                </button>
+              </div>
+              <CardTitle className="text-2xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                בחר תאריך
+              </CardTitle>
+              <div className="bg-blue-50 rounded-lg p-3 inline-block">
+                <p className="text-sm text-blue-800">
+                  <Sparkles className="w-4 h-4 inline ml-1" />
+                  {selectedService.name} • {selectedService.duration_minutes} דקות
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Calendar Navigation */}
+              <div className="flex items-center justify-between mb-6">
+                <button
+                  onClick={() => {
+                    const prevMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1);
+                    const today = new Date();
+                    // Don't allow going to months before current month
+                    if (prevMonth.getFullYear() > today.getFullYear() || 
+                        (prevMonth.getFullYear() === today.getFullYear() && prevMonth.getMonth() >= today.getMonth())) {
+                      setCurrentMonth(prevMonth);
+                    }
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={currentMonth.getFullYear() === new Date().getFullYear() && currentMonth.getMonth() === new Date().getMonth()}
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+                <h3 className="text-lg font-semibold">
+                  {MONTHS_HEBREW[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                </h3>
+                <button
+                  onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Calendar Grid */}
+              <div className="grid grid-cols-7 gap-2">
+                {/* Day Headers */}
+                {DAYS_HEBREW.map(day => (
+                  <div key={day} className="p-2 text-center text-sm font-medium text-gray-500">
+                    {day}
                   </div>
                 ))}
+                
+                {/* Calendar Days */}
+                {generateCalendarDays().map((day, index) => (
+                  <button
+                    key={index}
+                    onClick={() => day.isSelectable ? handleDateSelect(formatDateForAPI(day.date)) : null}
+                    disabled={!day.isSelectable}
+                    className={`
+                      p-3 text-sm rounded-lg transition-all duration-200 relative
+                      ${!day.isCurrentMonth ? 'text-gray-300' : ''}
+                      ${day.isToday ? 'ring-2 ring-blue-500 font-bold' : ''}
+                      ${day.isSelectable 
+                        ? 'hover:bg-blue-100 cursor-pointer text-gray-900 border-2 border-transparent hover:border-blue-300' 
+                        : 'cursor-not-allowed text-gray-400'
+                      }
+                      ${day.isPast && day.isCurrentMonth ? 'bg-gray-100 text-gray-400' : ''}
+                      ${day.isAvailable && !day.isPast ? 'bg-green-50 text-green-800' : ''}
+                    `}
+                  >
+                    {day.day}
+                    {day.isAvailable && !day.isPast && (
+                      <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-green-500 rounded-full"></div>
+                    )}
+                  </button>
+                ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* כפתור בקשת תור - עם מודל BusinessBooking */}
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button
-              size="lg"
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium"
-              disabled={availableSlots.length === 0}
-            >
-              <MessageCircle className="h-5 w-5 ml-2" />
-              {selectedService ? `בקש תור ל${selectedService.name}` : 'בקש תור'}
-            </Button>
-          </DialogTrigger>
+              <div className="mt-6 flex justify-between">
+                <button
+                  onClick={() => setStep('service')}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  ← חזור
+                </button>
+                <div className="text-xs text-gray-500 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-green-50 border border-green-200 rounded"></div>
+                    <span>ימים זמינים</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>בקשת תור ב{businessData.business.name}</DialogTitle>
-              <DialogDescription>
-                {selectedService
-                  ? `בחר תאריך ושעה לשירות ${selectedService.name}`
-                  : 'בחר שירות, תאריך ושעה'
-                }
-              </DialogDescription>
-            </DialogHeader>
+        {/* Time Selection */}
+        {step === 'time' && selectedService && selectedDate && (
+          <Card className="shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+            <CardHeader className="text-center">
+              <div className="flex items-center justify-center gap-4 mb-2">
+                <button
+                  onClick={() => setStep('service')}
+                  className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                >
+                  ← שנה שירות
+                </button>
+                <button
+                  onClick={() => setStep('date')}
+                  className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                >
+                  ← שנה תאריך
+                </button>
+              </div>
+              <CardTitle className="text-2xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                בחר שעה
+              </CardTitle>
+              <div className="bg-blue-50 rounded-lg p-3 inline-block">
+                <p className="text-sm text-blue-800">
+                  <Calendar className="w-4 h-4 inline ml-1" />
+                  {formatDateForDisplay(selectedDate)} • {selectedService.name}
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingSlots ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <p className="text-gray-600">טוען שעות פנויות...</p>
+                </div>
+              ) : availableSlots.length > 0 ? (
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                  {availableSlots.map((time) => (
+                    <button
+                      key={time}
+                      onClick={() => handleTimeSelect(time)}
+                      className="p-3 bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border border-blue-200 hover:border-blue-400 rounded-lg transition-all duration-200 text-blue-800 font-medium hover:shadow-md"
+                    >
+                      {time}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Clock className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-600">אין שעות פנויות בתאריך זה</p>
+                  <button
+                    onClick={() => setStep('date')}
+                    className="mt-3 text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    בחר תאריך אחר
+                  </button>
+                </div>
+              )}
 
-            <div className="py-4">
-              <BusinessBooking
-                businessSlug={businessData.business.slug}
-                businessName={businessData.business.name}
-                services={selectedService ? [selectedService] : businessData.services}
-                availability={businessData.availability}
-                businessTerms={businessData.business.terms}
-                onClose={() => setDialogOpen(false)}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
+              <div className="mt-6 flex justify-between">
+                <button
+                  onClick={() => setStep('date')}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  ← חזור
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Client Details */}
+        {step === 'details' && (
+          <Card className="shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+            <CardHeader className="text-center">
+              <div className="flex items-center justify-center gap-4 mb-2">
+                <button
+                  onClick={() => setStep('service')}
+                  className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                >
+                  ← שנה שירות
+                </button>
+                <button
+                  onClick={() => setStep('time')}
+                  className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                >
+                  ← שנה שעה
+                </button>
+              </div>
+              <CardTitle className="text-2xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                פרטים אישיים
+              </CardTitle>
+              <div className="bg-blue-50 rounded-lg p-3 inline-block">
+                <p className="text-sm text-blue-800">
+                  <Clock className="w-4 h-4 inline ml-1" />
+                  {formatDateForDisplay(selectedDate)} • {selectedTime} • {selectedService?.name}
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <Label htmlFor="client_name">שם מלא *</Label>
+                <div className="relative mt-1">
+                  <Input
+                    id="client_name"
+                    value={appointmentRequest.client_name}
+                    onChange={(e) => setAppointmentRequest(prev => ({ ...prev, client_name: e.target.value }))}
+                    placeholder="הכנס שם מלא"
+                    className="pr-10"
+                    dir="rtl"
+                  />
+                  <User className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="client_phone">מספר טלפון *</Label>
+                <div className="relative mt-1">
+                  <Input
+                    id="client_phone"
+                    value={appointmentRequest.client_phone}
+                    onChange={(e) => setAppointmentRequest(prev => ({ ...prev, client_phone: e.target.value }))}
+                    placeholder="05X-XXXXXXX"
+                    className="pr-10"
+                    dir="ltr"
+                  />
+                  <Phone className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="note">הערות (אופציונלי)</Label>
+                <div className="relative mt-1">
+                  <Textarea
+                    id="note"
+                    value={appointmentRequest.note}
+                    onChange={(e) => setAppointmentRequest(prev => ({ ...prev, note: e.target.value }))}
+                    placeholder="הערות נוספות לתור..."
+                    className="pr-10"
+                    dir="rtl"
+                    rows={3}
+                  />
+                  <MessageCircle className="absolute right-3 top-3 w-4 h-4 text-gray-400" />
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setStep('time')}
+                  className="flex-1 py-3 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  ← חזור
+                </button>
+                <Button
+                  onClick={handleDetailsSubmit}
+                  disabled={!appointmentRequest.client_name || !appointmentRequest.client_phone || otpSending}
+                  className="flex-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                >
+                  {otpSending ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent ml-2"></div>
+                      שולח קוד...
+                    </>
+                  ) : (
+                    'המשך לאימות'
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* OTP Verification */}
+        {step === 'otp' && (
+          <Card className="shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                אימות טלפון
+              </CardTitle>
+              <p className="text-gray-600 mt-2">
+                שלחנו קוד אימות ל-{appointmentRequest.client_phone}
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <Label htmlFor="otp">קוד אימות (6 ספרות)</Label>
+                <Input
+                  id="otp"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="text-center text-2xl tracking-widest"
+                  dir="ltr"
+                  maxLength={6}
+                />
+              </div>
+
+              {resendTimer > 0 && (
+                <p className="text-sm text-gray-500 text-center">
+                  ניתן לשלוח קוד חדש בעוד {resendTimer} שניות
+                </p>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setStep('details')}
+                  className="flex-1 py-3 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  ← חזור
+                </button>
+                <Button
+                  onClick={handleOTPSubmit}
+                  disabled={otpCode.length !== 6 || otpVerifying || submitting}
+                  className="flex-2 bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
+                >
+                  {otpVerifying || submitting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent ml-2"></div>
+                      {submitting ? 'שולח בקשה...' : 'מאמת...'}
+                    </>
+                  ) : (
+                    'שלח בקשת תור'
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Success */}
+        {step === 'success' && (
+          <Card className="shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+            <CardContent className="text-center py-12">
+              <div className="w-20 h-20 bg-gradient-to-r from-green-500 to-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle className="w-10 h-10 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                בקשת התור נשלחה בהצלחה!
+              </h2>
+              <p className="text-gray-600 mb-6">
+                {business?.name} יאשר את התור ויצור איתך קשר בקרוב
+              </p>
+              
+              <div className="bg-blue-50 rounded-xl p-6 mb-6 text-right">
+                <h3 className="font-semibold text-blue-900 mb-3">פרטי התור:</h3>
+                <div className="space-y-2 text-blue-800">
+                  <p><Calendar className="w-4 h-4 inline ml-2" />{formatDateForDisplay(selectedDate)}</p>
+                  <p><Clock className="w-4 h-4 inline ml-2" />{selectedTime}</p>
+                  <p><Sparkles className="w-4 h-4 inline ml-2" />{selectedService?.name}</p>
+                  <p><User className="w-4 h-4 inline ml-2" />{appointmentRequest.client_name}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                <Shield className="w-4 h-4" />
+                <span>המידע שלך מוגן ובטוח</span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
-    </div >
+    </div>
   );
 }

@@ -202,6 +202,9 @@ export interface Business {
   terms?: string;
   is_active: boolean;
   created_at: string;
+  profile_image_url?: string | null;
+  profile_image_path?: string | null;
+  profile_image_updated_at?: string | null;
 }
 
 export interface Service {

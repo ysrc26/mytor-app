@@ -1,4 +1,4 @@
-// src/app/api/unavailable/route.ts
+// src/app/api/unavailable/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 
@@ -15,23 +15,53 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // שליפת תאריכים לא זמינים
-    const { data: unavailableDates, error } = await supabase
-      .from('unavailable_dates')
-      .select('*')
+    // Get user's business first
+    const { data: business, error: businessError } = await supabase
+      .from('businesses')
+      .select('id')
       .eq('user_id', user.id)
-      .gte('date', new Date().toISOString().split('T')[0]) // רק תאריכים עתידיים
-      .order('date');
+      .eq('is_active', true)
+      .single();
 
-    if (error) {
-      console.error('Error fetching unavailable dates:', error);
+    if (businessError || !business) {
       return NextResponse.json(
-        { error: 'שגיאה בשליפת התאריכים החסומים' },
-        { status: 500 }
+        { error: 'עסק לא נמצא' },
+        { status: 404 }
       );
     }
 
-    return NextResponse.json(unavailableDates || []);
+    // שליפת תאריכים לא זמינים - משתמש ב-business_id אם קיים, אחרת ב-user_id
+    let unavailableDates;
+    
+    // נסה קודם עם business_id
+    const { data: businessUnavailable, error: businessUnavailableError } = await supabase
+      .from('unavailable_dates')
+      .select('*')
+      .eq('business_id', business.id)
+      .order('date');
+
+    if (!businessUnavailableError && businessUnavailable && businessUnavailable.length > 0) {
+      unavailableDates = businessUnavailable;
+    } else {
+      // נסה עם user_id אם לא נמצא עם business_id
+      const { data: userUnavailable, error: userUnavailableError } = await supabase
+        .from('unavailable_dates')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date');
+
+      if (userUnavailableError) {
+        console.error('Error fetching unavailable dates:', userUnavailableError);
+        return NextResponse.json(
+          { error: 'שגיאה בשליפת התאריכים החסומים' },
+          { status: 500 }
+        );
+      }
+
+      unavailableDates = userUnavailable || [];
+    }
+
+    return NextResponse.json(unavailableDates);
 
   } catch (error) {
     console.error('Error in unavailable GET:', error);
@@ -55,8 +85,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get user's business
+    const { data: business, error: businessError } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .single();
+
+    if (businessError || !business) {
+      return NextResponse.json(
+        { error: 'עסק לא נמצא' },
+        { status: 404 }
+      );
+    }
+
     const body = await request.json();
-    const { date } = body;
+    const { date, reason } = body;
 
     // ולידציה
     if (!date) {
@@ -77,11 +122,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // בדיקה אם התאריך כבר חסום
+    // בדיקה אם התאריך כבר חסום (בדוק עם business_id)
     const { data: existingBlock } = await supabase
       .from('unavailable_dates')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('business_id', business.id)
       .eq('date', date)
       .single();
 
@@ -92,12 +137,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // יצירת חסימה חדשה
+    // יצירת חסימה חדשה - עם business_id וגם user_id לתאימות לאחור
     const { data: newBlock, error: insertError } = await supabase
       .from('unavailable_dates')
       .insert({
-        user_id: user.id,
-        date
+        business_id: business.id,
+        user_id: user.id,  // לתאימות לאחור
+        date,
+        reason: reason || null
       })
       .select()
       .single();

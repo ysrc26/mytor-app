@@ -1,6 +1,7 @@
 // src/hooks/useBusinessData.ts
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase-client';
 import { BusinessAPI, BusinessNotFoundError } from '@/lib/business-api';
 import { showErrorToast, showSuccessToast } from '@/lib/toast-utils';
 import type { Business, Service, Availability } from '@/lib/types';
@@ -14,15 +15,27 @@ export interface UseBusinessDataResult {
   // States
   loading: boolean;
   saving: boolean;
+  uploadingImage: boolean;
   error: string | null;
   
-  // Actions
+  // Business Actions
   reload: () => Promise<void>;
   updateBusiness: (data: Partial<Business>) => Promise<void>;
+  
+  // Services Actions
   addService: (serviceData: Omit<Service, 'id' | 'business_id' | 'created_at'>) => Promise<void>;
   deleteService: (serviceId: string) => Promise<void>;
+  
+  // Availability Actions
   addAvailability: (availabilityData: Omit<Availability, 'id' | 'business_id'>) => Promise<void>;
   deleteAvailability: (availabilityId: string) => Promise<void>;
+  
+  // Image Actions
+  uploadProfileImage: (file: File) => Promise<string | null>;
+  deleteProfileImage: () => Promise<boolean>;
+  getImageUrl: (path: string) => string;
+  
+  // Utilities
   clearError: () => void;
   
   // API instance for direct access
@@ -30,7 +43,7 @@ export interface UseBusinessDataResult {
 }
 
 /**
- * Custom hook לניהול נתוני העסק, שירותים וזמינות
+ * Custom hook לניהול נתוני העסק, שירותים, זמינות ותמונות
  * מרכז את כל הstate management והAPI calls הקשורים לעסק
  */
 export const useBusinessData = (businessId: string): UseBusinessDataResult => {
@@ -42,9 +55,11 @@ export const useBusinessData = (businessId: string): UseBusinessDataResult => {
   const [availability, setAvailability] = useState<Availability[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   const router = useRouter();
+  const supabase = createClient();
   
   // יצירת API instance - רק פעם אחת לכל businessId
   const api = useMemo(() => new BusinessAPI(businessId), [businessId]);
@@ -269,6 +284,148 @@ export const useBusinessData = (businessId: string): UseBusinessDataResult => {
   }, [availability, api]);
 
   // ===================================
+  // 🖼️ Image Management Functions
+  // ===================================
+
+  /**
+   * העלאת תמונת פרופיל חדשה
+   */
+  const uploadProfileImage = useCallback(async (file: File): Promise<string | null> => {
+    if (!business) {
+      showErrorToast('לא ניתן להעלות תמונה ללא נתוני עסק');
+      return null;
+    }
+
+    setUploadingImage(true);
+    
+    try {
+      // ולידציה בסיסית
+      if (!file.type.startsWith('image/')) {
+        showErrorToast('אנא בחר קובץ תמונה בלבד');
+        return null;
+      }
+
+      if (file.size > 5 * 1024 * 1024) { // 5MB
+        showErrorToast('גודל התמונה לא יכול לעלות על 5MB');
+        return null;
+      }
+
+      // מחיקת תמונה קודמת אם קיימת
+      if (business.profile_image_path) {
+        try {
+          await supabase.storage
+            .from('business-profiles')
+            .remove([business.profile_image_path]);
+        } catch (err) {
+          console.warn('Failed to delete old image:', err);
+        }
+      }
+
+      // יצירת שם קובץ ייחודי
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${businessId}/${Date.now()}.${fileExt}`;
+
+      // העלאה ל-Storage
+      const { data, error } = await supabase.storage
+        .from('business-profiles')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (error) {
+        console.error('Upload error:', error);
+        showErrorToast('שגיאה בהעלאת התמונה');
+        return null;
+      }
+
+      // קבלת URL ציבורי
+      const { data: urlData } = supabase.storage
+        .from('business-profiles')
+        .getPublicUrl(fileName);
+
+      const imageUrl = urlData.publicUrl;
+
+      // עדכון העסק עם התמונה החדשה
+      const updatedBusinessData = {
+        profile_image_url: imageUrl,
+        profile_image_path: fileName,
+        profile_image_updated_at: new Date().toISOString()
+      };
+
+      const updatedBusiness = await api.updateBusiness(updatedBusinessData);
+      setBusiness(updatedBusiness);
+
+      showSuccessToast('תמונה הועלתה בהצלחה!');
+      console.log('✅ Profile image uploaded successfully');
+      
+      return imageUrl;
+
+    } catch (error) {
+      console.error('Upload process error:', error);
+      showErrorToast('שגיאה כללית בהעלאת התמונה');
+      return null;
+    } finally {
+      setUploadingImage(false);
+    }
+  }, [business, businessId, api, supabase]);
+
+  /**
+   * מחיקת תמונת פרופיל
+   */
+  const deleteProfileImage = useCallback(async (): Promise<boolean> => {
+    if (!business) return false;
+
+    try {
+      setUploadingImage(true);
+
+      // מחיקה מה-Storage אם יש path
+      if (business.profile_image_path) {
+        const { error: deleteError } = await supabase.storage
+          .from('business-profiles')
+          .remove([business.profile_image_path]);
+
+        if (deleteError) {
+          console.error('Storage delete error:', deleteError);
+        }
+      }
+
+      // עדכון העסק (איפוס השדות)
+      const updatedBusinessData = {
+        profile_image_url: null,
+        profile_image_path: null,
+        profile_image_updated_at: new Date().toISOString()
+      };
+
+      const updatedBusiness = await api.updateBusiness(updatedBusinessData);
+      setBusiness(updatedBusiness);
+
+      showSuccessToast('תמונה נמחקה בהצלחה');
+      console.log('✅ Profile image deleted successfully');
+      
+      return true;
+
+    } catch (error) {
+      console.error('Delete process error:', error);
+      showErrorToast('שגיאה במחיקת התמונה');
+      return false;
+    } finally {
+      setUploadingImage(false);
+    }
+  }, [business, api, supabase]);
+
+  /**
+   * קבלת URL של תמונה מ-Storage
+   */
+  const getImageUrl = useCallback((path: string): string => {
+    const { data } = supabase.storage
+      .from('business-profiles')
+      .getPublicUrl(path);
+    
+    return data.publicUrl;
+  }, [supabase]);
+
+  // ===================================
   // 🛠️ Utility Functions
   // ===================================
 
@@ -299,15 +456,27 @@ export const useBusinessData = (businessId: string): UseBusinessDataResult => {
     // States
     loading,
     saving,
+    uploadingImage,
     error,
     
-    // Actions
+    // Business Actions
     reload,
     updateBusiness,
+    
+    // Services Actions
     addService,
     deleteService,
+    
+    // Availability Actions
     addAvailability,
     deleteAvailability,
+    
+    // Image Actions
+    uploadProfileImage,
+    deleteProfileImage,
+    getImageUrl,
+    
+    // Utilities
     clearError,
     
     // API instance
@@ -331,7 +500,8 @@ export const useBasicBusinessData = (businessId: string) => {
     error,
     businessName: business?.name || '',
     businessSlug: business?.slug || '',
-    isActive: business?.is_active || false
+    isActive: business?.is_active || false,
+    profileImageUrl: business?.profile_image_url || null
   };
 };
 

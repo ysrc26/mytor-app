@@ -153,14 +153,9 @@ export class BusinessAPI {
   }
 
   /**
-   * עדכון פרטי העסק
+   * עדכון פרטי העסק (כולל תמונות)
    */
-  async updateBusiness(data: {
-    name?: string;
-    slug?: string;
-    description?: string;
-    terms?: string;
-  }): Promise<Business> {
+  async updateBusiness(data: Partial<Business>): Promise<Business> {
     const response = await fetch(`/api/businesses/${this.businessId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

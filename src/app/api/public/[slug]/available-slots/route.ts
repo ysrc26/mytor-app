@@ -1,65 +1,65 @@
-// src/app/api/public/[slug]/available-slots/route.ts
-
+// src/app/api/public/[slug]/available-slots/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
 import { supabasePublic } from '@/lib/supabase-public';
-import { rateLimit } from '@/lib/rate-limit';
+import { getSupabaseClient } from '@/lib/api-auth';
 import { timeUtils } from '@/lib/time-utils';
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
 
-  const clientIp = request.headers.get('x-forwarded-for') || 'unknown';
-  if (!rateLimit(clientIp, 30, 60000)) {
-    return NextResponse.json({ error: 'יותר מדי בקשות' }, { status: 429 });
-  }
+  const { createClient } = await import('@supabase/supabase-js');
+    const supabaseServer = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
 
-
-
-  let date: string | null = null;
   try {
-    const supabase = supabasePublic;
-    const { searchParams } = new URL(request.url);
-    const serviceId = searchParams.get('service_id');
     const { slug } = await params;
+    const { searchParams } = new URL(request.url);
+    const date = searchParams.get('date');
+    const service_id = searchParams.get('service_id');
 
-    date = searchParams.get('date');
-    if (!date) {
-      return NextResponse.json({ error: 'חסר תאריך' }, { status: 400 });
+    console.log('🔍 Available slots request:', { slug, date, service_id });
+
+    if (!date || !service_id) {
+      return NextResponse.json(
+        { error: 'חסרים פרמטרים נדרשים' },
+        { status: 400 }
+      );
     }
 
-    const [year, month, day] = date.split('-').map(Number);
-    const requestedDate = new Date(year, month - 1, day, 12, 0, 0);
-    const dayOfWeek = requestedDate.getDay();
-
-    console.log('📅 Date check:', {
-      inputDate: date,
-      dayOfWeek,
-      dayName: ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'][dayOfWeek]
-    });
-
-    console.log('🔍 Available slots API called:', { slug, date, serviceId });
-
-    // ולידציה בסיסית
-    if (!serviceId) {
-      return NextResponse.json({ error: 'חסר מזהה שירות' }, { status: 400 });
+    // Validate date format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return NextResponse.json(
+        { error: 'פורמט תאריך שגוי' },
+        { status: 400 }
+      );
     }
 
     // בדיקה שהתאריך לא בעבר
-    if (timeUtils.isPastDate(requestedDate)) {
-      console.log('📅 Date is in the past:', date);
+    const appointmentDate = new Date(date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (appointmentDate < today) {
       return NextResponse.json({
         date,
-        service: null,
+        service: { id: service_id, name: '', duration_minutes: 0 },
         available_slots: [],
         total_slots: 0
       }, { status: 200 });
     }
 
-    // מציאת העסק לפי slug
-    console.log('🏢 Looking for business with slug:', slug);
-    const { data: business, error: businessError } = await supabase
+    const dayOfWeek = appointmentDate.getDay();
+    console.log('📅 Date info:', { date, dayOfWeek });
+
+    // שליפת פרטי עסק
+    const { data: business, error: businessError } = await supabasePublic
       .from('businesses')
       .select('id, user_id, name, is_active')
       .eq('slug', slug)
@@ -67,79 +67,30 @@ export async function GET(
       .single();
 
     if (businessError || !business) {
-      console.error('❌ Business not found:', businessError);
-      return NextResponse.json({ error: 'עסק לא נמצא או לא פעיל' }, { status: 404 });
+      console.error('Business error:', businessError);
+      return NextResponse.json({ error: 'עסק לא נמצא' }, { status: 404 });
     }
 
-    console.log('✅ Business found:', { id: business.id, name: business.name });
+    console.log('✅ Business found:', business);
 
-    // שליפת פרטי השירות - הוסף debug
-    console.log('🎯 Looking for service:', { serviceId, businessId: business.id });
-    const { data: service, error: serviceError } = await supabase
+    // שליפת פרטי שירות
+    const { data: service, error: serviceError } = await supabasePublic
       .from('services')
-      .select('id, name, duration_minutes, is_active, business_id')
-      .eq('id', serviceId)
+      .select('id, name, duration_minutes, is_active')
+      .eq('id', service_id)
       .eq('business_id', business.id)
       .eq('is_active', true)
       .single();
 
-    console.log('🎯 Service query result:', { service, serviceError });
-
     if (serviceError || !service) {
-      console.error('❌ Service not found:', {
-        serviceError,
-        serviceId,
-        businessId: business.id
-      });
-
-      // בואו נבדוק אם השירות קיים בכלל
-      const { data: allServices } = await supabase
-        .from('services')
-        .select('id, name, business_id, is_active')
-        .eq('id', serviceId);
-
-      console.log('🔍 All services with this ID:', allServices);
-
-      // בואו נבדוק גם אילו שירותים יש לעסק הזה
-      const { data: businessServices } = await supabase
-        .from('services')
-        .select('id, name, business_id, is_active')
-        .eq('business_id', business.id);
-
-      console.log('🔍 All services for this business:', businessServices);
-
-      return NextResponse.json({
-        error: 'שירות לא נמצא או לא פעיל',
-        debug: {
-          serviceId,
-          businessId: business.id,
-          allServicesWithThisId: allServices,
-          businessServices: businessServices
-        }
-      }, { status: 404 });
+      console.error('Service error:', serviceError);
+      return NextResponse.json({ error: 'שירות לא נמצא' }, { status: 404 });
     }
 
     console.log('✅ Service found:', service);
 
-    console.log('🔍 Checking ALL availability for business:', business.id);
-    const { data: allAvailability } = await supabase
-      .from('availability')
-      .select('*')
-      .eq('business_id', business.id);
-
-    console.log('📋 ALL availability records for business:', allAvailability);
-
-    // ובואו נבדוק גם עם user_id במקום business_id
-    const { data: userAvailability } = await supabase
-      .from('availability')
-      .select('*')
-      .eq('user_id', business.user_id);
-
-    console.log('👤 Availability records with user_id:', userAvailability);
-
-
     // שליפת זמינות ליום זה
-    const { data: availability, error: availabilityError } = await supabase
+    const { data: availability, error: availabilityError } = await supabasePublic
       .from('availability')
       .select('start_time, end_time, day_of_week')
       .eq('business_id', business.id)
@@ -168,22 +119,36 @@ export async function GET(
       }, { status: 200 });
     }
 
-    // בדיקת תאריכים לא זמינים
+    // בדיקת תאריכים לא זמינים - בדוק בשני המקומות (business_id וגם user_id)
     let unavailableDates;
     try {
-      const { data: unavailableData, error: unavailableError } = await supabase
+      // נסה קודם עם business_id
+      const { data: businessUnavailable, error: businessUnavailableError } = await supabasePublic
         .from('unavailable_dates')
         .select('date')
-        .eq('user_id', business.user_id)  // ✅ user_id במקום business_id
+        .eq('business_id', business.id)
         .eq('date', date);
 
-      if (unavailableError) {
-        console.error('❌ Unavailable dates query error:', unavailableError);
-        return NextResponse.json({ error: 'שגיאה בבדיקת תאריכים לא זמינים' }, { status: 500 });
+      if (!businessUnavailableError && businessUnavailable && businessUnavailable.length > 0) {
+        unavailableDates = businessUnavailable;
+      } else {
+        // נסה עם user_id אם לא נמצא עם business_id
+        const { data: userUnavailable, error: userUnavailableError } = await supabasePublic
+          .from('unavailable_dates')
+          .select('date')
+          .eq('user_id', business.user_id)
+          .eq('date', date);
+
+        if (userUnavailableError) {
+          console.error('❌ Unavailable dates query error:', userUnavailableError);
+          return NextResponse.json({ error: 'שגיאה בבדיקת תאריכים לא זמינים' }, { status: 500 });
+        }
+
+        unavailableDates = userUnavailable || [];
       }
 
-      unavailableDates = unavailableData || [];
       console.log('🚫 Unavailable dates check:', {
+        business_id: business.id,
         user_id: business.user_id,
         date,
         unavailableDates
@@ -209,15 +174,15 @@ export async function GET(
     }
 
     // שליפת תורים קיימים לתאריך זה
-    const { data: existingAppointments, error: appointmentsError } = await supabase
-      .from('public_appointments_with_services')  // 🔒 שימוש ב-View המאובטח
-      .select('time, duration_minutes')            // 🔒 רק מה שצריך
-      .eq('user_id', business.user_id)
+    const { data: existingAppointments, error: appointmentsError } = await supabaseServer
+      .from('appointments')
+      .select('start_time, end_time, status')
+      .eq('business_id', business.id)
       .eq('date', date)
       .in('status', ['pending', 'confirmed']);
 
-    console.log('📋 Existing appointments from view:', {
-      user_id: business.user_id,
+    console.log('📋 Existing appointments:', {
+      business_id: business.id,
       existingAppointments,
       appointmentsError
     });
@@ -227,71 +192,85 @@ export async function GET(
       return NextResponse.json({ error: 'שגיאה בשליפת תורים קיימים' }, { status: 500 });
     }
 
-    // פורמט התורים הקיימים
-    const formattedAppointments = existingAppointments?.map(apt => ({
-      time: timeUtils.normalizeTime(apt.time),
-      duration_minutes: apt.duration_minutes || service.duration_minutes  // fallback לשירות הנוכחי
-    })) || [];
+    // חישוב שעות פנויות
+    const allSlots: string[] = [];
 
-    // פורמט הזמינות
-    const formattedAvailability = availability.map(slot => ({
-      day_of_week: slot.day_of_week,
-      start_time: timeUtils.normalizeTime(slot.start_time),
-      end_time: timeUtils.normalizeTime(slot.end_time)
-    }));
+    for (const slot of availability) {
+      const startTime = new Date(`2000-01-01T${slot.start_time}`);
+      const endTime = new Date(`2000-01-01T${slot.end_time}`);
+      let currentTime = new Date(startTime);
 
-    console.log('⚙️ Generating slots with:', {
-      serviceDuration: service.duration_minutes,
-      formattedAvailability,
-      formattedAppointments
-    });
+      while (currentTime < endTime) {
+        const timeString = currentTime.toTimeString().slice(0, 5);
+        
+        // בדיקה אם השעה הזו תתאים לשירות
+        const slotEndTime = new Date(currentTime);
+        slotEndTime.setMinutes(slotEndTime.getMinutes() + service.duration_minutes);
 
-    // יצירת שעות פנויות
-    const availableSlots = timeUtils.generateAvailableSlots(
-      requestedDate,
-      service.duration_minutes,
-      formattedAvailability,
-      formattedAppointments,
-      15
-    );
+        if (slotEndTime <= endTime) {
+          allSlots.push(timeString);
+        }
 
-    console.log('🕐 Generated slots:', availableSlots);
-
-    // סינון שעות שעברו
-    const today = new Date();
-    const filteredSlots = availableSlots.filter(slot => {
-      if (requestedDate.toDateString() === today.toDateString()) {
-        return !timeUtils.isPastTime(slot, requestedDate);
+        // מעבר לחריץ הבא (כל 15 דקות)
+        currentTime.setMinutes(currentTime.getMinutes() + 15);
       }
+    }
+
+    // סינון שעות תפוסות
+    const availableSlots = allSlots.filter(slot => {
+      const slotStart = timeUtils.normalizeTime(slot);
+      const slotEnd = timeUtils.minutesToTime(
+        timeUtils.timeToMinutes(slotStart) + service.duration_minutes
+      );
+
+      // בדיקה אם השעה בעבר (אם זה היום)
+      if (appointmentDate.toDateString() === today.toDateString()) {
+        const now = new Date();
+        const slotDateTime = new Date(`${date}T${slotStart}:00`);
+        if (slotDateTime <= now) {
+          return false;
+        }
+      }
+
+      // בדיקת חפיפה עם תורים קיימים
+      for (const apt of existingAppointments || []) {
+        const hasOverlap = timeUtils.hasTimeOverlap(
+          slotStart,
+          slotEnd,
+          apt.start_time,
+          apt.end_time
+        );
+
+        if (hasOverlap) {
+          return false;
+        }
+      }
+
       return true;
     });
 
-    console.log('✅ Final filtered slots:', filteredSlots);
+    console.log('✅ Available slots calculated:', {
+      totalSlots: allSlots.length,
+      availableSlots: availableSlots.length,
+      slots: availableSlots
+    });
 
-    const response = NextResponse.json({
+    return NextResponse.json({
       date,
       service: {
         id: service.id,
         name: service.name,
         duration_minutes: service.duration_minutes
       },
-      available_slots: filteredSlots,
-      total_slots: filteredSlots.length
+      available_slots: availableSlots,
+      total_slots: allSlots.length
     });
 
-    // 📦 Cache למשך 30 שניות (התאמה לצרכים)
-    response.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
-    response.headers.set('ETag', `"${date}-${service.id}-${filteredSlots.length}"`);
-
-    return response;
-
   } catch (error) {
-    console.error('💥 API Error:', error);
-    return NextResponse.json({
-      error: 'שגיאת שרת פנימית',
-      date: date,
-      available_slots: [],
-      total_slots: 0
-    }, { status: 500 });
+    console.error('Unexpected error in available-slots:', error);
+    return NextResponse.json(
+      { error: 'שגיאת שרת פנימית' },
+      { status: 500 }
+    );
   }
 }

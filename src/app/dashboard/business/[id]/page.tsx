@@ -21,6 +21,7 @@ import { AppointmentsList } from '@/components/dashboard/AppointmentsList';
 import { BusinessProfileModal } from '@/components/dashboard/modals/BusinessProfileModal';
 import { ServicesModal } from '@/components/dashboard/modals/ServicesModal';
 import { AvailabilityModal } from '@/components/dashboard/modals/AvailabilityModal';
+import { UnavailableDatesModal } from '@/components/dashboard/modals/UnavailableDatesModal';
 import { SettingsModal } from '@/components/dashboard/modals/SettingsModal';
 import { CreateAppointmentModal } from '@/components/dashboard/modals/CreateAppointmentModal';
 import { EditAppointmentModal } from '@/components/dashboard/modals/EditAppointmentModal';
@@ -128,6 +129,7 @@ export default function BusinessDashboard() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [servicesModalOpen, setServicesModalOpen] = useState(false);
   const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
+  const [unavailableDatesModalOpen, setUnavailableDatesModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [createAppointmentModalOpen, setCreateAppointmentModalOpen] = useState(false);
   const [createAppointmentData, setCreateAppointmentData] = useState<{
@@ -553,6 +555,12 @@ export default function BusinessDashboard() {
         cancelText="ביטול"
         isDangerous={true}
         appointment={deleteModalData.appointment}
+      />
+
+      <UnavailableDatesModal
+        isOpen={unavailableDatesModalOpen}
+        onClose={() => setUnavailableDatesModalOpen(false)}
+        businessId={businessId}
       />
     </div>
   );

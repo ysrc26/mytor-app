@@ -218,7 +218,7 @@ const PendingAppointmentCard = ({
               {/* Date & Time */}
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-gray-500" />
-                <span className="text-gray-600">{formatDate(appointment.date)} • ⏰ {appointment.time}</span>
+                <span className="text-gray-600">{formatDate(appointment.date)} • ⏰ {appointment.start_time}</span>
               </div>
 
               {/* Service */}

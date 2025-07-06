@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import {
   X, Settings, Sparkles, Clock, Calendar, BarChart,
   LogOut, ChevronLeft, ExternalLink, Crown, Bell,
-  CreditCard, Users, Phone, Copy, Check
+  CreditCard, Users, Phone, Copy, Check,
+  CalendarX
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-client';
 import { showSuccessToast } from '@/lib/toast-utils';
@@ -20,7 +21,7 @@ interface SideNavigationProps {
   services: Service[];
   availability: Availability[];
   user?: User | null;
-  onOpenModal?: (modalType: 'profile' | 'services' | 'availability') => void;
+  onOpenModal?: (modalType: 'profile' | 'services' | 'availability' | 'unavailable-dates') => void;
   onOpenSettingsModal?: () => void;
 }
 
@@ -189,7 +190,7 @@ const QuickActions = ({ business, onCopyLink, copied }: QuickActionsProps) => (
 );
 
 interface MainNavigationProps {
-  onOpenModal?: (modalType: 'profile' | 'services' | 'availability') => void;
+  onOpenModal?: (modalType: 'profile' | 'services' | 'availability' | 'unavailable-dates') => void;
   onClose: () => void;
 }
 
@@ -202,6 +203,7 @@ const MainNavigation = ({ onOpenModal, onClose }: MainNavigationProps) => {
       label: 'פרטי עסק',
       icon: Settings,
       desc: 'עדכן מידע וקישורים',
+      color: 'bg-blue-100 text-blue-600 group-hover:bg-blue-200',
       action: () => onOpenModal?.('profile')
     },
     {
@@ -209,14 +211,24 @@ const MainNavigation = ({ onOpenModal, onClose }: MainNavigationProps) => {
       label: 'שירותים',
       icon: Sparkles,
       desc: 'הוסף ועדכן שירותים',
+      color: 'bg-purple-100 text-purple-600 group-hover:bg-purple-200',
       action: () => onOpenModal?.('services')
     },
     {
       key: 'availability',
-      label: 'זמינות',
+      label: 'שעות עבודה',
       icon: Clock,
       desc: 'הגדר שעות פעילות',
+      color: 'bg-green-100 text-green-600 group-hover:bg-green-200',
       action: () => onOpenModal?.('availability')
+    },
+    {
+      key: 'unavailable-dates',
+      label: 'תאריכים חסומים',
+      icon: CalendarX,
+      desc: 'נהל חופשות וחגים',
+      color: 'bg-red-100 text-red-600 group-hover:bg-red-200',
+      action: () => onOpenModal?.('unavailable-dates')
     }
   ];
 

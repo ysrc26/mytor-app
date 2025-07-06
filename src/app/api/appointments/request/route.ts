@@ -1,7 +1,6 @@
-// src/app/api/appointments/request/route.ts - REFACTORED VERSION
+// src/app/api/appointments/request/route.ts - FIXED VERSION with proper client
 import { NextRequest, NextResponse } from 'next/server';
-import { supabasePublic } from '@/lib/supabase-public';
-import { rateLimit, validateIsraeliPhone, verifyPhoneOTP } from '@/lib/api-auth';
+import { rateLimit, validateIsraeliPhone, verifyPhoneOTP, getSupabaseClient } from '@/lib/api-auth';
 import { AppointmentValidator } from '@/lib/appointment-utils';
 import { timeUtils } from '@/lib/time-utils';
 
@@ -13,7 +12,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const supabase = supabasePublic;
+    // ✅ השתמש בפונקציה הקיימת עם service role לעקיפת RLS
+    const supabase = await getSupabaseClient('server');
+    
     const body = await request.json();
 
     const {
@@ -22,12 +23,22 @@ export async function POST(request: NextRequest) {
       client_name,
       client_phone,
       date,
-      time,
+      start_time,
       note
     } = body;
 
+    console.log('📝 Appointment request received:', {
+      slug,
+      service_id,
+      client_name,
+      client_phone,
+      date,
+      start_time,
+      note
+    });
+
     // 📋 Basic validation
-    if (!slug || !client_name || !client_phone || !date || !time || !service_id) {
+    if (!slug || !client_name || !client_phone || !date || !start_time || !service_id) {
       return NextResponse.json(
         { error: 'חסרים פרטים נדרשים' },
         { status: 400 }
@@ -63,60 +74,82 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (businessError || !business) {
-      console.error('Business not found:', businessError);
-      return NextResponse.json(
-        { error: 'עסק לא נמצא או לא פעיל' },
-        { status: 404 }
-      );
+      console.error('Business error:', businessError);
+      return NextResponse.json({ error: 'עסק לא נמצא' }, { status: 404 });
     }
 
-    // 🎯 CENTRALIZED VALIDATION - This replaces all the complex validation logic
+    console.log('✅ Business found:', business);
+
+    // 🎯 Get service details
+    const { data: service, error: serviceError } = await supabase
+      .from('services')
+      .select('id, name, duration_minutes, is_active')
+      .eq('id', service_id)
+      .eq('business_id', business.id)
+      .eq('is_active', true)
+      .single();
+
+    if (serviceError || !service) {
+      console.error('Service error:', serviceError);
+      return NextResponse.json({ error: 'שירות לא נמצא' }, { status: 404 });
+    }
+
+    console.log('✅ Service found:', service);
+
+    // 🛡️ Centralized validation using AppointmentValidator
+    console.log('🔍 Validating time slot with:', {
+      businessId: business.id,
+      serviceId: service_id,
+      date,
+      start_time
+    });
+
     const validationResult = await AppointmentValidator.validateTimeSlot({
       businessId: business.id,
       serviceId: service_id,
       date,
-      time
+      start_time
     });
 
     if (!validationResult.isValid) {
+      console.error('❌ Validation failed:', validationResult.error);
       return NextResponse.json(
-        { error: validationResult.error },
+        { error: validationResult.error || 'השעה לא זמינה' },
         { status: 400 }
       );
     }
 
-    // 🏢 Get service details
-    const { data: service, error: serviceError } = await supabase
-      .from('services')
-      .select('id, duration_minutes')
-      .eq('id', service_id)
-      .single();
-    if (serviceError || !service) {
-      console.error('❌ Service not found:', serviceError);
-      return NextResponse.json({ error: 'שירות לא נמצא' }, { status: 404 });
-    }
+    console.log('✅ Time slot validation passed');
 
-    // 💾 Create appointment
+    // 🧮 Calculate end_time based on service duration
+    const normalizedStartTime = timeUtils.normalizeTime(start_time);
+    const endTimeMinutes = timeUtils.timeToMinutes(normalizedStartTime) + service.duration_minutes;
+    const end_time = timeUtils.minutesToTime(endTimeMinutes);
+
+    console.log('⏰ Calculated times:', {
+      normalizedStartTime,
+      end_time,
+      duration: service.duration_minutes
+    });
+
+    // 💾 Create appointment in database using server client (bypasses RLS)
     const { data: newAppointment, error: insertError } = await supabase
       .from('appointments')
       .insert({
-        user_id: business.user_id,
         business_id: business.id,
+        user_id: business.user_id,
         service_id: service_id,
         client_name: client_name.trim(),
         client_phone: client_phone.trim(),
+        client_verified: true, // מאומת דרך OTP
         date,
-        start_time: timeUtils.normalizeTime(time), // ✅
-        end_time: timeUtils.minutesToTime( // ✅
-          timeUtils.timeToMinutes(timeUtils.normalizeTime(time)) +
-          (service?.duration_minutes || 60)
-        ),
+        start_time: normalizedStartTime,
+        end_time,
         status: 'pending',
-        note: note?.trim() || null,
-        client_verified: true
+        note: note?.trim() || null
       })
       .select(`
-        id, date, time, status,
+        id, date, start_time, end_time, status,
         services!inner(name),
         businesses!inner(name)
       `)
@@ -130,6 +163,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log('✅ Appointment created successfully:', newAppointment.id);
+
     // 📧 TODO: Send notification to business owner (email/SMS)
     // await sendAppointmentNotification(business.user_id, newAppointment);
 
@@ -138,7 +173,8 @@ export async function POST(request: NextRequest) {
       appointment: {
         id: newAppointment.id,
         date: newAppointment.date,
-        time: newAppointment.time,
+        start_time: newAppointment.start_time,
+        end_time: newAppointment.end_time,
         status: newAppointment.status,
         service_name: (newAppointment as any).services.name,
         business_name: (newAppointment as any).businesses.name
@@ -154,33 +190,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
-// ===================================
-// COMPARISON: OLD vs NEW
-// ===================================
-
-/*
-🔴 OLD VERSION PROBLEMS:
-- 150+ lines of duplicate validation logic
-- Manual time conflict checking
-- Manual availability checking  
-- Mixed business logic with API handling
-- Hard to test individual pieces
-- Duplicate code that needs to be maintained
-
-🟢 NEW VERSION BENEFITS:
-- 80 lines total (47% reduction)
-- Centralized validation via AppointmentValidator
-- Reusable phone verification
-- Clear separation of concerns
-- Easy to test and maintain
-- Single source of truth for validation logic
-
-🎯 LOGIC MOVED TO UTILS:
-✅ Time validation → timeUtils
-✅ Availability checking → AppointmentValidator  
-✅ Conflict detection → AppointmentValidator
-✅ Phone validation → api-auth utils
-✅ OTP verification → api-auth utils
-✅ Rate limiting → api-auth utils
-*/

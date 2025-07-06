@@ -1,5 +1,6 @@
 // src/lib/appointment-utils.ts
 import { supabasePublic } from '@/lib/supabase-public';
+import { getSupabaseClient } from '@/lib/api-auth';
 import { timeUtils } from '@/lib/time-utils';
 import { Appointment, Availability, Service } from '@/lib/types';
 
@@ -225,48 +226,139 @@ export class AppointmentValidator {
     }));
   }
 
-  private static async getExistingAppointments(businessId: string, date: string): Promise<AppointmentWithService[]> {
-    const { data } = await supabasePublic
+private static async getExistingAppointments(businessId: string, date: string): Promise<AppointmentWithService[]> {
+  try {
+    console.log('🔍 Fetching existing appointments:', { businessId, date });
+    
+    // ✅ נשתמש ישירות ב-service role client (בטוח כי זה לוגיקה פנימית)
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabaseServer = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
+
+    const { data, error } = await supabaseServer
       .from('appointments')
       .select(`
-      id, start_time, end_time, status,
-      services!inner(duration_minutes, name)
-    `)
+        id, start_time, end_time, status,
+        services!inner(duration_minutes, name)
+      `)
       .eq('business_id', businessId)
       .eq('date', date)
-      .in('status', ['pending', 'confirmed']);
+      .in('status', ['pending', 'confirmed']); // ✅ כולל גם pending
+
+    console.log('📋 Found existing appointments:', {
+      count: data?.length || 0,
+      appointments: data,
+      error
+    });
+
+    if (error) {
+      console.error('❌ Error fetching appointments:', error);
+      return [];
+    }
+
     return (data || []).map(appointment => ({
       ...appointment,
-      services: appointment.services ? appointment.services[0] : undefined
+      services: appointment.services ? 
+        (Array.isArray(appointment.services) ? appointment.services[0] : appointment.services)
+        : undefined
     }));
+    
+  } catch (error) {
+    console.error('❌ Unexpected error in getExistingAppointments:', error);
+    return [];
   }
+}
 
-  private static async checkBusinessAvailability(businessId: string, dayOfWeek: number, time: string): Promise<AvailabilityCheckResult> {
-    const { data: availability } = await supabasePublic
+private static async checkBusinessAvailability(businessId: string, dayOfWeek: number, time: string): Promise<AvailabilityCheckResult> {
+  try {
+    console.log('🏢 Checking business availability:', { businessId, dayOfWeek, time });
+
+    // וודא שהפרמטרים תקינים
+    if (!time || typeof time !== 'string') {
+      console.error('❌ Invalid time parameter:', time);
+      return { isValid: false, error: 'זמן לא תקין' };
+    }
+
+    const { data: availability, error } = await supabasePublic
       .from('availability')
       .select('start_time, end_time')
       .eq('business_id', businessId)
       .eq('day_of_week', dayOfWeek)
       .eq('is_active', true);
 
+    if (error) {
+      console.error('❌ Error fetching availability:', error);
+      return { isValid: false, error: 'שגיאה בבדיקת זמינות עסק' };
+    }
+
     if (!availability || availability.length === 0) {
+      console.log('⚠️ No availability found for:', { businessId, dayOfWeek });
       return { isValid: false, error: 'העסק לא זמין ביום זה' };
     }
 
+    console.log('📋 Availability slots found:', availability);
+
     const normalizedTime = timeUtils.normalizeTime(time);
-    const isTimeAvailable = availability.some(slot =>
-      timeUtils.isTimeInSlot(normalizedTime, {
-        start_time: timeUtils.normalizeTime(slot.start_time),
-        end_time: timeUtils.normalizeTime(slot.end_time)
-      })
-    );
+    console.log('⏰ Normalized time:', normalizedTime);
+
+    // בדיקת זמינות עם לוג מפורט
+    const isTimeAvailable = availability.some(slot => {
+      if (!slot.start_time || !slot.end_time) {
+        console.warn('⚠️ Invalid slot found (missing times):', slot);
+        return false;
+      }
+
+      console.log('🔍 Checking slot:', {
+        slot_start: slot.start_time,
+        slot_end: slot.end_time,
+        requested_time: normalizedTime
+      });
+
+      try {
+        // ✅ הקריאה הנכונה עם TimeSlot object
+        const result = timeUtils.isTimeInSlot(normalizedTime, {
+          start_time: timeUtils.normalizeTime(slot.start_time),
+          end_time: timeUtils.normalizeTime(slot.end_time)
+        });
+
+        console.log('🔍 Slot check result:', {
+          requested: normalizedTime,
+          slot: `${slot.start_time}-${slot.end_time}`,
+          result
+        });
+
+        return result;
+      } catch (error) {
+        console.error('❌ Error checking if time in slot:', error);
+        return false;
+      }
+    });
+
+    console.log('🏢 Final availability check result:', isTimeAvailable);
 
     if (!isTimeAvailable) {
-      return { isValid: false, error: 'השעה שנבחרה לא זמינה' };
+      return { 
+        isValid: false, 
+        error: `השעה ${normalizedTime} לא זמינה ביום זה` 
+      };
     }
 
+    console.log('✅ Time is within business hours');
     return { isValid: true };
+
+  } catch (error) {
+    console.error('❌ Error in checkBusinessAvailability:', error);
+    return { isValid: false, error: 'שגיאה בבדיקת זמינות עסק' };
   }
+}
 
   private static async checkAppointmentConflicts(
     businessId: string,

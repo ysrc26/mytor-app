@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Calendar, Coffee, Plane, Heart, Star, Sun } from 'lucide-react';
+import { X, Plus, Trash2, Calendar, Coffee, Plane, Heart, Star, Sun, Edit3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -46,12 +46,36 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
 
   // Form for adding new blocked date
   const [newDate, setNewDate] = useState({
     date: '',
     reason: ''
   });
+
+  // Form for editing existing date
+  const [editForm, setEditForm] = useState({
+    id: '',
+    reason: ''
+  });
+
+  // ===== Helper Functions =====
+  const formatDateForDisplay = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const day = date.getDate();
+    const month = MONTHS_HEBREW[date.getMonth()];
+    const year = date.getFullYear();
+    const dayName = date.toLocaleDateString('he-IL', { weekday: 'long' });
+    
+    return `${dayName}, ${day} ${month} ${year}`;
+  };
+
+  const getReasonTemplate = (reason: string) => {
+    return REASON_TEMPLATES.find(template => 
+      template.label.toLowerCase() === reason.toLowerCase()
+    );
+  };
 
   // ===== Data Fetching =====
   const fetchUnavailableDates = async () => {
@@ -120,90 +144,121 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
       });
 
       if (response.ok) {
-        showSuccessToast('תאריך שוחרר בהצלחה');
+        showSuccessToast('חסימת התאריך בוטלה');
         fetchUnavailableDates();
       } else {
         const error = await response.json();
-        showErrorToast(error.error || 'שגיאה בשחרור התאריך');
+        showErrorToast(error.error || 'שגיאה בביטול החסימה');
       }
     } catch (error) {
       console.error('Error deleting unavailable date:', error);
-      showErrorToast('שגיאה בשחרור התאריך');
+      showErrorToast('שגיאה בביטול החסימה');
     } finally {
       setDeleting(null);
     }
   };
 
-  const handleReasonTemplateClick = (reason: string) => {
-    setNewDate(prev => ({ ...prev, reason }));
+  const handleEditReason = async (id: string) => {
+    if (!editForm.reason.trim()) {
+      showErrorToast('הזן סיבה');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/unavailable/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: editForm.reason
+        })
+      });
+
+      if (response.ok) {
+        showSuccessToast('סיבת החסימה עודכנה');
+        setEditing(null);
+        setEditForm({ id: '', reason: '' });
+        fetchUnavailableDates();
+      } else {
+        const error = await response.json();
+        showErrorToast(error.error || 'שגיאה בעדכון הסיבה');
+      }
+    } catch (error) {
+      console.error('Error updating reason:', error);
+      showErrorToast('שגיאה בעדכון הסיבה');
+    }
   };
 
-  const formatDateForDisplay = (dateStr: string): string => {
-    const date = new Date(dateStr);
-    return `${date.getDate()} ${MONTHS_HEBREW[date.getMonth()]} ${date.getFullYear()}`;
+  const startEdit = (dateId: string, currentReason: string) => {
+    setEditing(dateId);
+    setEditForm({ id: dateId, reason: currentReason || '' });
   };
 
-  const getReasonTemplate = (reason: string) => {
-    return REASON_TEMPLATES.find(template => template.label === reason);
+  const cancelEdit = () => {
+    setEditing(null);
+    setEditForm({ id: '', reason: '' });
   };
 
-  // ===== Component =====
+  const handleReasonTemplateClick = (template: string) => {
+    setNewDate(prev => ({ ...prev, reason: template }));
+  };
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-            <Calendar className="w-6 h-6 text-blue-600" />
-            ניהול תאריכים חסומים
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+        <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-l from-blue-50 to-purple-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">ניהול זמנים חסומים</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                נהל תאריכים בהם לא ניתן לקבוע תורים
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-white hover:bg-opacity-70 rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row h-full max-h-[calc(90vh-80px)]">
-          {/* Add New Date Panel */}
-          <div className="lg:w-1/2 p-6 border-b lg:border-b-0 lg:border-l border-gray-200">
+        {/* Content */}
+        <div className="flex flex-col lg:flex-row max-h-[calc(90vh-200px)]">
+          {/* Add New Date Form */}
+          <div className="lg:w-1/2 p-6 border-l border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              הוסף תאריך חסום
+              חסום תאריך חדש
             </h3>
 
             <div className="space-y-4">
               {/* Date Selection */}
               <div>
-                <Label htmlFor="block-date">תאריך לחסימה *</Label>
+                <Label htmlFor="date">תאריך</Label>
                 <CustomDatePicker
                   value={newDate.date}
-                  onChange={(value) => setNewDate(prev => ({ ...prev, date: value }))}
+                  onChange={(date) => setNewDate(prev => ({ ...prev, date }))}
                   placeholder="בחר תאריך לחסימה"
-                  min={new Date().toISOString().split('T')[0]}
-                  className="mt-1"
                 />
               </div>
 
               {/* Reason Templates */}
               <div>
-                <Label>תבניות נפוצות</Label>
-                <div className="grid grid-cols-2 gap-2 mt-2">
+                <Label>סיבות נפוצות</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
                   {REASON_TEMPLATES.map((template) => (
                     <button
                       key={template.label}
                       onClick={() => handleReasonTemplateClick(template.label)}
                       className={`
-                        p-3 rounded-lg border transition-all duration-200 text-sm font-medium
-                        ${newDate.reason === template.label 
-                          ? template.color + ' ring-2 ring-offset-1 ring-blue-500' 
-                          : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-                        }
+                        px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200
+                        ${template.color} hover:shadow-sm
+                        ${newDate.reason === template.label ? 'ring-2 ring-blue-500' : ''}
                       `}
                     >
-                      <template.icon className="w-4 h-4 mb-1 mx-auto" />
+                      <template.icon className="w-3 h-3 ml-1 inline-block" />
                       {template.label}
                     </button>
                   ))}
@@ -212,23 +267,24 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
 
               {/* Custom Reason */}
               <div>
-                <Label htmlFor="reason">סיבה (אופציונלי)</Label>
-                <Textarea
+                <Label htmlFor="reason">סיבה מותאמת אישית (אופציונלי)</Label>
+                <Input
                   id="reason"
                   value={newDate.reason}
                   onChange={(e) => setNewDate(prev => ({ ...prev, reason: e.target.value }))}
-                  placeholder="סיבת החסימה (למשל: חופשה, אירוע משפחתי...)"
-                  className="mt-1"
-                  rows={2}
-                  dir="rtl"
+                  placeholder="למשל: ביקור רופא, פגישה חשובה..."
+                  maxLength={50}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  {newDate.reason.length}/50 תווים
+                </p>
               </div>
 
               {/* Add Button */}
               <Button
                 onClick={handleAddDate}
-                disabled={!newDate.date || saving}
-                className="w-full bg-red-600 hover:bg-red-700"
+                disabled={saving || !newDate.date}
+                className="w-full"
               >
                 {saving ? (
                   <>
@@ -269,6 +325,7 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                     const template = getReasonTemplate(blockedDate.reason || '');
                     const dateObj = new Date(blockedDate.date);
                     const isPast = dateObj < new Date();
+                    const isEditing = editing === blockedDate.id;
 
                     return (
                       <div
@@ -296,42 +353,91 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                               )}
                             </div>
 
-                            {/* Reason */}
-                            {blockedDate.reason && (
+                            {/* Reason - Edit Mode */}
+                            {isEditing ? (
+                              <div className="space-y-2">
+                                <Input
+                                  value={editForm.reason}
+                                  onChange={(e) => setEditForm(prev => ({ ...prev, reason: e.target.value }))}
+                                  placeholder="הזן סיבה חדשה..."
+                                  maxLength={50}
+                                  autoFocus
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleEditReason(blockedDate.id)}
+                                    disabled={!editForm.reason.trim()}
+                                  >
+                                    שמור
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={cancelEdit}
+                                  >
+                                    ביטול
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              /* Reason - Display Mode */
                               <div className="flex items-center gap-2">
-                                {template ? (
-                                  <Badge className={`${template.color} text-xs`}>
-                                    <template.icon className="w-3 h-3 ml-1" />
-                                    {blockedDate.reason}
-                                  </Badge>
+                                {blockedDate.reason ? (
+                                  <>
+                                    {template ? (
+                                      <Badge className={`${template.color} text-xs`}>
+                                        <template.icon className="w-3 h-3 ml-1" />
+                                        {blockedDate.reason}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                                        {blockedDate.reason}
+                                      </span>
+                                    )}
+                                    {!isPast && (
+                                      <button
+                                        onClick={() => startEdit(blockedDate.id, blockedDate.reason || '')}
+                                        className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                                        title="ערוך סיבה"
+                                      >
+                                        <Edit3 className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </>
                                 ) : (
-                                  <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded">
-                                    {blockedDate.reason}
-                                  </span>
+                                  <button
+                                    onClick={() => startEdit(blockedDate.id, '')}
+                                    className="text-sm text-gray-400 hover:text-blue-600 transition-colors"
+                                  >
+                                    + הוסף סיבה
+                                  </button>
                                 )}
                               </div>
                             )}
                           </div>
 
                           {/* Delete Button */}
-                          <button
-                            onClick={() => handleDeleteDate(blockedDate.id)}
-                            disabled={deleting === blockedDate.id}
-                            className={`
-                              p-2 rounded-lg transition-colors
-                              ${isPast 
-                                ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-100' 
-                                : 'text-red-600 hover:text-red-800 hover:bg-red-50'
-                              }
-                            `}
-                            title="שחרר תאריך"
-                          >
-                            {deleting === blockedDate.id ? (
-                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
-                            ) : (
-                              <Trash2 className="w-4 h-4" />
-                            )}
-                          </button>
+                          {!isEditing && (
+                            <button
+                              onClick={() => handleDeleteDate(blockedDate.id)}
+                              disabled={deleting === blockedDate.id}
+                              className={`
+                                p-2 rounded-lg transition-colors
+                                ${isPast 
+                                  ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-100' 
+                                  : 'text-red-600 hover:text-red-800 hover:bg-red-50'
+                                }
+                              `}
+                              title="שחרר תאריך"
+                            >
+                              {deleting === blockedDate.id ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

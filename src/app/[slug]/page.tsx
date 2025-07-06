@@ -12,14 +12,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  Calendar, 
-  Clock, 
-  Phone, 
-  User, 
-  MessageCircle, 
-  CheckCircle, 
-  AlertCircle, 
+import {
+  Calendar,
+  Clock,
+  Phone,
+  User,
+  MessageCircle,
+  CheckCircle,
+  AlertCircle,
   Sparkles,
   ChevronLeft,
   ChevronRight,
@@ -98,7 +98,7 @@ export default function BusinessPage() {
         }
         const data = await response.json();
         setBusinessData(data);
-        
+
         // Auto-select single service but stay on service step
         if (data.services && data.services.length === 1) {
           setSelectedService(data.services[0]);
@@ -152,9 +152,9 @@ export default function BusinessPage() {
 
   const isDateAvailable = (date: Date): boolean => {
     if (!businessData?.availability) return false;
-    
+
     const dayOfWeek = date.getDay();
-    return businessData.availability.some(slot => 
+    return businessData.availability.some(slot =>
       slot.day_of_week === dayOfWeek && slot.is_active
     );
   };
@@ -291,12 +291,12 @@ export default function BusinessPage() {
     const lastDay = new Date(year, month + 1, 0);
     const startDate = new Date(firstDay);
     startDate.setDate(startDate.getDate() - firstDay.getDay());
-    
+
     const days = [];
     const current = new Date(startDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Reset time for accurate comparison
-    
+
     for (let i = 0; i < 42; i++) {
       const date = new Date(current);
       const isCurrentMonth = date.getMonth() === month;
@@ -304,7 +304,7 @@ export default function BusinessPage() {
       const isAvailable = isDateAvailable(date) && isCurrentMonth;
       const isPast = date < today; // Fixed: compare with today at 00:00
       const isSelectable = isAvailable && !isPast;
-      
+
       days.push({
         date,
         day: date.getDate(),
@@ -314,10 +314,10 @@ export default function BusinessPage() {
         isPast,
         isSelectable
       });
-      
+
       current.setDate(current.getDate() + 1);
     }
-    
+
     return days;
   };
 
@@ -354,31 +354,41 @@ export default function BusinessPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       {/* Header */}
-      <div className="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          <div className="flex items-center gap-4">
-            <Avatar className="w-16 h-16 ring-2 ring-blue-200">
-              <AvatarImage src={business?.profile_image_url || ""} />
-              <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold text-lg">
-                {business?.name?.charAt(0) || 'B'}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold text-gray-900">{business?.name}</h1>
-              {business?.description && (
-                <p className="text-gray-600 mt-1">{business.description}</p>
-              )}
-              <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                {business?.phone && (
-                  <div className="flex items-center gap-1">
-                    <Phone className="w-4 h-4" />
-                    <span>{business.phone}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-1">
-                  <Star className="w-4 h-4 text-yellow-500" />
-                  <span>4.8 (127 ביקורות)</span>
+      <div
+        className="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-40 relative overflow-hidden min-h-[100px]"
+        style={{
+          backgroundImage: business?.profile_image_url ? `url(${business.profile_image_url})` : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center top',
+          backgroundRepeat: 'no-repeat',
+          backgroundAttachment: 'local'
+        }}
+      >
+        {/* Overlay for better text readability */}
+        {business?.profile_image_url && (
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/40 to-black/50 backdrop-blur-[1px]"></div>
+        )}
+
+        <div className="max-w-6xl mx-auto px-4 py-16 relative z-10">
+          <div className="text-center">
+            <h1 className={`text-6xl font-bold mb-6 ${business?.profile_image_url ? 'text-white drop-shadow-2xl' : 'text-gray-900'}`}>
+              {business?.name}
+            </h1>
+
+            <div className="flex items-center justify-center gap-8 text-base">
+              {business?.phone && (
+                <div className={`flex items-center gap-2 ${business?.profile_image_url ? 'text-white/90 drop-shadow' : 'text-gray-500'}`}>
+                  <Phone className="w-5 h-5" />
+                  <span>{business.phone}</span>
                 </div>
+              )}
+              <div className={`flex items-center gap-2 ${business?.profile_image_url ? 'text-white/90 drop-shadow' : 'text-gray-500'}`}>
+                <MapPin className="w-5 h-5" />
+                <span>{business?.address || 'ישראל'}</span>
+              </div>
+              <div className={`flex items-center gap-2 ${business?.profile_image_url ? 'text-white/90 drop-shadow' : 'text-gray-500'}`}>
+                <Star className="w-5 h-5 text-yellow-400 drop-shadow" />
+                <span>4.8 (127 ביקורות)</span>
               </div>
             </div>
           </div>
@@ -389,16 +399,16 @@ export default function BusinessPage() {
       <div className="max-w-4xl mx-auto px-4 py-6">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border-0 mb-6">
           <div className="p-6">
-            <div className="grid md:grid-cols-3 gap-6">
+            <div className="space-y-8">
               {/* Business Details */}
-              <div className="md:col-span-2">
+              <div>
                 <h2 className="text-xl font-bold text-gray-900 mb-4">על העסק</h2>
                 <div className="prose prose-gray max-w-none">
                   <p className="text-gray-700 leading-relaxed">
                     {business?.description || "ברוכים הבאים לעסק שלנו! אנו מתמחים במתן שירות מקצועי ואיכותי ללקוחותינו."}
                   </p>
                 </div>
-                
+
                 {/* Services Overview */}
                 <div className="mt-6">
                   <h3 className="font-semibold text-gray-900 mb-3">השירותים שלנו</h3>
@@ -412,65 +422,21 @@ export default function BusinessPage() {
                 </div>
               </div>
 
-              {/* Contact & Hours */}
-              <div className="space-y-6">
-                {/* Contact Info */}
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <Phone className="w-4 h-4" />
-                    יצירת קשר
-                  </h3>
-                  <div className="space-y-2 text-sm">
-                    {business?.phone && (
-                      <div className="flex items-center gap-2">
-                        <Phone className="w-3 h-3 text-gray-400" />
-                        <a href={`tel:${business.phone}`} className="text-blue-600 hover:text-blue-800">
-                          {business.phone}
-                        </a>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-3 h-3 text-gray-400" />
-                      <span className="text-gray-600">תל אביב-יפו</span>
+              {/* Working Hours */}
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  שעות פעילות
+                </h3>
+                <div className="space-y-1 text-sm">
+                  {businessData?.availability.map((slot) => (
+                    <div key={slot.id} className="flex justify-between">
+                      <span className="text-gray-600">{DAYS_HEBREW[slot.day_of_week]}</span>
+                      <span className="text-gray-900 font-medium">
+                        {slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}
+                      </span>
                     </div>
-                  </div>
-                </div>
-
-                {/* Working Hours */}
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    שעות פעילות
-                  </h3>
-                  <div className="space-y-1 text-sm">
-                    {businessData?.availability.map((slot) => (
-                      <div key={slot.id} className="flex justify-between">
-                        <span className="text-gray-600">{DAYS_HEBREW[slot.day_of_week]}</span>
-                        <span className="text-gray-900 font-medium">
-                          {slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Reviews Summary */}
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <Star className="w-4 h-4" />
-                    ביקורות
-                  </h3>
-                  <div className="bg-yellow-50 rounded-lg p-3">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="flex">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <Star key={star} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                        ))}
-                      </div>
-                      <span className="text-sm font-medium">4.8 מתוך 5</span>
-                    </div>
-                    <p className="text-xs text-gray-600">מבוסס על 127 ביקורות</p>
-                  </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -536,37 +502,37 @@ export default function BusinessPage() {
               ) : (
                 // Multiple services - original grid
                 services.map((service) => (
-                <button
-                  key={service.id}
-                  onClick={() => handleServiceSelect(service)}
-                  className="w-full p-6 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-purple-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-all duration-300 text-right group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-700">
-                        {service.name}
-                      </h3>
-                      {service.description && (
-                        <p className="text-sm text-gray-600">{service.description}</p>
-                      )}
-                      <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-4 h-4" />
-                          {service.duration_minutes} דקות
-                        </span>
-                        {service.price && (
-                          <span className="font-medium text-green-600">
-                            ₪{service.price}
-                          </span>
+                  <button
+                    key={service.id}
+                    onClick={() => handleServiceSelect(service)}
+                    className="w-full p-6 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-purple-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-all duration-300 text-right group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-700">
+                          {service.name}
+                        </h3>
+                        {service.description && (
+                          <p className="text-sm text-gray-600">{service.description}</p>
                         )}
+                        <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-4 h-4" />
+                            {service.duration_minutes} דקות
+                          </span>
+                          {service.price && (
+                            <span className="font-medium text-green-600">
+                              ₪{service.price}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="w-8 h-8 rounded-full bg-blue-100 group-hover:bg-blue-200 flex items-center justify-center">
+                        <ChevronRight className="w-4 h-4 text-blue-600" />
                       </div>
                     </div>
-                    <div className="w-8 h-8 rounded-full bg-blue-100 group-hover:bg-blue-200 flex items-center justify-center">
-                      <ChevronRight className="w-4 h-4 text-blue-600" />
-                    </div>
-                  </div>
-                </button>
-              )))}
+                  </button>
+                )))}
             </CardContent>
           </Card>
         )}
@@ -601,8 +567,8 @@ export default function BusinessPage() {
                     const prevMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1);
                     const today = new Date();
                     // Don't allow going to months before current month
-                    if (prevMonth.getFullYear() > today.getFullYear() || 
-                        (prevMonth.getFullYear() === today.getFullYear() && prevMonth.getMonth() >= today.getMonth())) {
+                    if (prevMonth.getFullYear() > today.getFullYear() ||
+                      (prevMonth.getFullYear() === today.getFullYear() && prevMonth.getMonth() >= today.getMonth())) {
                       setCurrentMonth(prevMonth);
                     }
                   }}
@@ -630,7 +596,7 @@ export default function BusinessPage() {
                     {day}
                   </div>
                 ))}
-                
+
                 {/* Calendar Days */}
                 {generateCalendarDays().map((day, index) => (
                   <button
@@ -641,8 +607,8 @@ export default function BusinessPage() {
                       p-3 text-sm rounded-lg transition-all duration-200 relative
                       ${!day.isCurrentMonth ? 'text-gray-300' : ''}
                       ${day.isToday ? 'ring-2 ring-blue-500 font-bold' : ''}
-                      ${day.isSelectable 
-                        ? 'hover:bg-blue-100 cursor-pointer text-gray-900 border-2 border-transparent hover:border-blue-300' 
+                      ${day.isSelectable
+                        ? 'hover:bg-blue-100 cursor-pointer text-gray-900 border-2 border-transparent hover:border-blue-300'
                         : 'cursor-not-allowed text-gray-400'
                       }
                       ${day.isPast && day.isCurrentMonth ? 'bg-gray-100 text-gray-400' : ''}
@@ -917,7 +883,7 @@ export default function BusinessPage() {
               <p className="text-gray-600 mb-6">
                 {business?.name} יאשר את התור ויצור איתך קשר בקרוב
               </p>
-              
+
               <div className="bg-blue-50 rounded-xl p-6 mb-6 text-right">
                 <h3 className="font-semibold text-blue-900 mb-3">פרטי התור:</h3>
                 <div className="space-y-2 text-blue-800">

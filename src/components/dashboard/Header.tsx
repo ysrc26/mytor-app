@@ -159,7 +159,7 @@ const NewAppointmentAlertComponent = ({
                 weekday: 'long',
                 day: 'numeric',
                 month: 'long'
-              })} • {appointment.time}
+              })} • {appointment.start_time}
             </span>
           </div>
           {appointment.note && (

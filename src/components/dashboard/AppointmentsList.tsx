@@ -5,7 +5,8 @@ import { useState, useMemo } from 'react';
 import {
   Users, Phone, Calendar, Clock, CheckCircle, AlertCircle, X, Edit,
   Trash2, Filter, Search, Copy, ChevronDown, MessageCircle, Sparkles,
-  Eye, EyeOff
+  Eye, EyeOff,
+  ChevronUp,
 } from 'lucide-react';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 import { isAppointmentEditable } from '@/lib/appointment-utils';
@@ -266,30 +267,15 @@ export const AppointmentsList = ({
         onViewModeChange={setViewMode}
         selectedCount={selectedAppointments.size}
         onBulkAction={handleBulkAction}
+        dateRange={dateRange}
+        onDateRangeChange={onDateRangeChange}
+        pagination={pagination}
+        loadingMore={loadingMore}
+        onLoadMore={onLoadMore}
+        onLoadPrevious={onLoadPrevious}
+        onRefresh={onRefresh}
+        canLoadPrevious={!!dateRange.start}
       />
-
-      {/* Date Range Picker ו-Controls */}
-      <div className="space-y-4 mb-6">
-        <DateRangePicker
-          startDate={dateRange.start}
-          endDate={dateRange.end}
-          onDateRangeChange={onDateRangeChange}
-          className="w-full sm:w-auto"
-        />
-
-        <AppointmentsControls
-          totalCount={appointments.length}
-          showingCount={filteredAndSortedAppointments.length}
-          pagination={pagination}
-          loading={loading}
-          loadingMore={loadingMore}
-          dateRange={dateRange}
-          onLoadMore={onLoadMore}
-          onLoadPrevious={onLoadPrevious}
-          onRefresh={onRefresh}
-          canLoadPrevious={!!dateRange.start}
-        />
-      </div>
 
       {/* Filters Panel */}
       {showFilters && (
@@ -359,6 +345,20 @@ interface AppointmentsHeaderProps {
   onViewModeChange: (mode: ViewMode) => void;
   selectedCount: number;
   onBulkAction: (action: 'confirm' | 'decline' | 'delete') => void;
+  dateRange: { start?: string; end?: string };
+  onDateRangeChange: (start?: string, end?: string) => void;
+  pagination: {
+    current_page: number;
+    limit: number;
+    total_count: number;
+    total_pages: number;
+    has_more: boolean;
+  };
+  loadingMore: boolean;
+  onLoadMore: () => void;
+  onLoadPrevious: () => void;
+  onRefresh: () => void;
+  canLoadPrevious: boolean;
 }
 
 const AppointmentsHeader = ({
@@ -371,6 +371,14 @@ const AppointmentsHeader = ({
   onViewModeChange,
   selectedCount,
   onBulkAction,
+  dateRange,
+  onDateRangeChange,
+  pagination,
+  loadingMore,
+  onLoadMore,
+  onLoadPrevious,
+  onRefresh,
+  canLoadPrevious
 }: AppointmentsHeaderProps) => {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-6 mb-6">
@@ -404,39 +412,29 @@ const AppointmentsHeader = ({
         </div>
       </div>
 
-      {/* Search and Actions */}
+      {/* Controls Row 1: DatePicker + Search + Filters */}
       <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+        {/* DateRangePicker */}
+        <DateRangePicker
+          startDate={dateRange.start}
+          endDate={dateRange.end}
+          onDateRangeChange={onDateRangeChange}
+          className="lg:w-auto"
+        />
+
         {/* Search */}
-        <div className="flex-1 relative">
+        <div className="flex-1 lg:max-w-xs relative">
           <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
           <input
             type="text"
-            placeholder="חיפוש לפי שם, טלפון או הערה..."
+            placeholder="חיפוש לפי שם, טלפון..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full pr-10 pl-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
 
-        {/* Bulk Actions */}
-        {selectedCount > 0 && (
-          <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
-            <span className="text-sm text-blue-700 font-medium">
-              {selectedCount} נבחרו
-            </span>
-            <Button size="sm" onClick={() => onBulkAction('confirm')}>
-              אשר
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => onBulkAction('decline')}>
-              דחה
-            </Button>
-            <Button size="sm" variant="destructive" onClick={() => onBulkAction('delete')}>
-              מחק
-            </Button>
-          </div>
-        )}
-
-        {/* View Controls */}
+        {/* Controls */}
         <div className="flex items-center gap-2">
           <button
             onClick={onToggleFilters}
@@ -477,6 +475,51 @@ const AppointmentsHeader = ({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Controls Row 2: Pagination + Bulk Actions */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mt-4 pt-4 border-t border-gray-100">
+        {/* Left: Pagination Controls */}
+        <div className="flex items-center gap-3">
+          {canLoadPrevious && (
+            <button
+              onClick={onLoadPrevious}
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
+            >
+              <ChevronUp className="h-4 w-4" />
+              טען קודמים
+            </button>
+          )}
+
+          {pagination.has_more && (
+            <button
+              onClick={onLoadMore}
+              disabled={loadingMore}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:cursor-not-allowed"
+            >
+              <ChevronDown className="h-4 w-4" />
+              {loadingMore ? 'טוען...' : `טען עוד (${pagination.total_count - statistics.showing})`}
+            </button>
+          )}
+        </div>
+
+        {/* Right: Bulk Actions */}
+        {selectedCount > 0 && (
+          <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
+            <span className="text-sm text-blue-700 font-medium">
+              {selectedCount} נבחרו
+            </span>
+            <Button size="sm" onClick={() => onBulkAction('confirm')}>
+              אשר
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => onBulkAction('decline')}>
+              דחה
+            </Button>
+            <Button size="sm" variant="destructive" onClick={() => onBulkAction('delete')}>
+              מחק
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

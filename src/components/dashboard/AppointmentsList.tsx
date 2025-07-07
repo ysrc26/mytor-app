@@ -4,7 +4,7 @@
 import { useState, useMemo } from 'react';
 import {
   Users, Phone, Calendar, Clock, CheckCircle, AlertCircle, X, Edit,
-  Trash2, Filter, Search, Copy, ChevronDown, MessageCircle, Sparkles,
+  Filter, Search, Copy, ChevronDown, MessageCircle, Sparkles,
   Eye, EyeOff,
 } from 'lucide-react';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
@@ -66,6 +66,7 @@ export const AppointmentsList = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('date-asc');
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [selectedServiceId, setSelectedServiceId] = useState<string | undefined>(undefined);
   const [selectedAppointments, setSelectedAppointments] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
@@ -83,21 +84,14 @@ export const AppointmentsList = ({
       filtered = filtered.filter(apt => apt.status === filterStatus);
     }
 
-    // Filter out past appointments by default
-    // const today = timeUtils.dateToLocalString(new Date());
-    // filtered = filtered.filter(apt => {
-    //   // בדוק אם התאריך עבר
-    //   if (timeUtils.isPastDate(new Date(apt.date))) {
-    //     return false;
-    //   }
-
-    //   // אם זה היום, בדוק אם השעה עברה
-    //   if (apt.date === today) {
-    //     return !timeUtils.isPastTime(apt.start_time, new Date(apt.date));
-    //   }
-
-    //   return true;
-    // });
+    // Filter by service
+    if (selectedServiceId) {
+      if (selectedServiceId === 'no-service') {
+        filtered = filtered.filter(apt => !apt.service_id);
+      } else {
+        filtered = filtered.filter(apt => apt.service_id === selectedServiceId);
+      }
+    }
 
     // Filter by search query
     if (searchQuery.trim()) {
@@ -129,7 +123,7 @@ export const AppointmentsList = ({
     });
 
     return filtered;
-  }, [appointments, filterStatus, searchQuery, sortBy]);
+  }, [appointments, filterStatus, selectedServiceId, searchQuery, sortBy]);
 
   const statistics = useMemo(() => {
     // Filter appointments based on current view settings
@@ -221,24 +215,19 @@ export const AppointmentsList = ({
     }
   };
 
-  const handleBulkAction = async (action: 'confirm' | 'decline' | 'delete') => {
+  const handleBulkAction = async (action: 'confirm' | 'decline') => {
     if (selectedAppointments.size === 0) return;
 
     const confirmMessage = {
       confirm: `האם אתה בטוח שברצונך לאשר ${selectedAppointments.size} תורים?`,
-      decline: `האם אתה בטוח שברצונך לדחות ${selectedAppointments.size} תורים?`,
-      delete: `האם אתה בטוח שברצונך למחוק ${selectedAppointments.size} תורים?`
+      decline: `האם אתה בטוח שברצונך לדחות ${selectedAppointments.size} תורים?`
     };
 
     if (!confirm(confirmMessage[action])) return;
 
     try {
       const promises = Array.from(selectedAppointments).map(id => {
-        if (action === 'delete') {
-          return onDeleteAppointment(id);
-        } else {
-          return onUpdateStatus(id, action === 'confirm' ? 'confirmed' : 'declined');
-        }
+        return onUpdateStatus(id, action === 'confirm' ? 'confirmed' : 'declined');
       });
 
       await Promise.all(promises);
@@ -285,6 +274,9 @@ export const AppointmentsList = ({
           onSortChange={setSortBy}
           services={services}
           appointments={appointments}
+          dateRange={dateRange}
+          selectedServiceId={selectedServiceId}
+          onServiceChange={setSelectedServiceId}
         />
       )}
 
@@ -343,7 +335,7 @@ interface AppointmentsHeaderProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   selectedCount: number;
-  onBulkAction: (action: 'confirm' | 'decline' | 'delete') => void;
+  onBulkAction: (action: 'confirm' | 'decline') => void;
   dateRange: { start?: string; end?: string };
   onDateRangeChange: (start?: string, end?: string) => void;
   pagination: {
@@ -501,9 +493,6 @@ const AppointmentsHeader = ({
             <Button size="sm" variant="outline" onClick={() => onBulkAction('decline')}>
               דחה
             </Button>
-            <Button size="sm" variant="destructive" onClick={() => onBulkAction('delete')}>
-              מחק
-            </Button>
           </div>
         </div>
       )}
@@ -522,6 +511,9 @@ interface FiltersPanelProps {
   onSortChange: (sort: SortOption) => void;
   services: Service[];
   appointments: Appointment[];
+  dateRange: { start?: string; end?: string };
+  selectedServiceId?: string;
+  onServiceChange: (serviceId?: string) => void;
 }
 
 const FiltersPanel = ({
@@ -531,6 +523,9 @@ const FiltersPanel = ({
   onSortChange,
   services,
   appointments,
+  dateRange,
+  selectedServiceId,
+  onServiceChange
 }: FiltersPanelProps) => {
   // Filter appointments
   const visibleAppointments = useMemo(() => {
@@ -555,7 +550,7 @@ const FiltersPanel = ({
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Status Filter */}
         <div>
           <h4 className="font-medium text-gray-900 mb-3">סטטוס תור</h4>
@@ -584,6 +579,25 @@ const FiltersPanel = ({
           </div>
         </div>
 
+        {/* Service Filter - 🆕 הוסף את זה */}
+        <div>
+          <h4 className="font-medium text-gray-900 mb-3">סינון לפי שירות</h4>
+          <select
+            value={selectedServiceId || ''}
+            onChange={(e) => onServiceChange(e.target.value || undefined)}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">כל השירותים</option>
+            {services.map((service) => (
+              <option key={service.id} value={service.id}>
+                {service.name}
+                {service.duration_minutes && ` (${service.duration_minutes} דקות)`}
+              </option>
+            ))}
+            <option value="no-service">ללא שירות מוגדר</option>
+          </select>
+        </div>
+
         {/* Sort Options */}
         <div>
           <h4 className="font-medium text-gray-900 mb-3">מיון</h4>
@@ -600,7 +614,7 @@ const FiltersPanel = ({
           </select>
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 
@@ -848,7 +862,7 @@ const AppointmentCards = ({
                 </>
               )}
 
-              {appointment.status === 'confirmed' && (
+              {appointment.status === 'confirmed' && !isPast && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -861,7 +875,7 @@ const AppointmentCards = ({
                 </Button>
               )}
 
-              {isEditable && onEditAppointment && (
+              {isEditable && appointment.status !== 'declined' && onEditAppointment && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -871,20 +885,6 @@ const AppointmentCards = ({
                   <Edit className="w-3 h-3" />
                 </Button>
               )}
-
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onDeleteAppointment(appointment.id)}
-                disabled={isUpdating || isDeleting}
-                className="text-red-600 hover:text-red-800"
-              >
-                {isDeleting ? (
-                  <div className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent" />
-                ) : (
-                  <Trash2 className="w-3 h-3" />
-                )}
-              </Button>
             </div>
           </div>
         );
@@ -1123,7 +1123,7 @@ const AppointmentTableRow = ({
             </>
           )}
 
-          {appointment.status === 'confirmed' && (
+          {appointment.status === 'confirmed' && !isPast && (
             <button
               onClick={() => onUpdateStatus(appointment.id, 'cancelled')}
               disabled={isUpdating || isDeleting}
@@ -1134,7 +1134,7 @@ const AppointmentTableRow = ({
             </button>
           )}
 
-          {isEditable && onEdit && (
+          {isEditable && appointment.status !== 'declined' && onEdit && (
             <button
               onClick={() => onEdit(appointment)}
               disabled={isUpdating || isDeleting}
@@ -1143,23 +1143,7 @@ const AppointmentTableRow = ({
             >
               <Edit className="w-4 h-4" />
             </button>
-          )}
-
-          <button
-            onClick={() => onDelete(appointment.id)}
-            disabled={isUpdating || isDeleting}
-            className={`p-1 rounded transition-colors disabled:opacity-50 ${isEditable
-              ? 'text-gray-500 hover:text-red-600 hover:bg-red-50'
-              : 'text-gray-300 cursor-not-allowed'
-              }`}
-            title={isEditable ? 'מחק תור' : 'לא ניתן למחוק תור שעבר'}
-          >
-            {isDeleting ? (
-              <div className="w-4 h-4 border border-red-600 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Trash2 className="w-4 h-4" />
-            )}
-          </button>
+          )}  
         </div>
       </td>
     </tr>

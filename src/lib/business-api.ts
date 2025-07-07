@@ -107,19 +107,19 @@ export class BusinessAPI {
     return response.json();
   }
 
-  /**
-   * מחיקת תור
-   */
-  async deleteAppointment(appointmentId: string): Promise<void> {
-    const response = await fetch(`/api/appointments/${appointmentId}`, {
-      method: 'DELETE'
-    });
+  // /**
+  //  * מחיקת תור
+  //  */
+  // async deleteAppointment(appointmentId: string): Promise<void> {
+  //   const response = await fetch(`/api/appointments/${appointmentId}`, {
+  //     method: 'DELETE'
+  //   });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new APIError(errorData.error || 'שגיאה במחיקת התור');
-    }
-  }
+  //   if (!response.ok) {
+  //     const errorData = await response.json();
+  //     throw new APIError(errorData.error || 'שגיאה במחיקת התור');
+  //   }
+  // }
 
   /**
    * עדכון תור (תאריך, שעה, שירות)

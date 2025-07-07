@@ -68,7 +68,6 @@ export interface UseAppointmentsResult {
   createAppointment: (data: CreateAppointmentData) => Promise<Appointment | null>;
   updateAppointmentStatus: (appointmentId: string, status: 'confirmed' | 'declined' | 'cancelled') => Promise<void>;
   updateAppointment: (appointmentId: string, data: { date?: string; time?: string; service_id?: string }) => Promise<void>;
-  deleteAppointment: (appointmentId: string) => Promise<void>;
   checkConflicts: (serviceId: string, date: string, time: string, excludeId?: string) => Promise<{ hasConflict: boolean; error?: string }>;
   refreshAppointments: () => Promise<void>;
   clearError: () => void;
@@ -467,40 +466,40 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     }
   }, [businessId, api]);
 
-  /**
-   * מחיקת תור
-   */
-  const deleteAppointment = useCallback(async (appointmentId: string) => {
-    const appointment = appointments.find(apt => apt.id === appointmentId);
-    if (!appointment) return;
+  // /**
+  //  * מחיקת תור
+  //  */
+  // const deleteAppointment = useCallback(async (appointmentId: string) => {
+  //   const appointment = appointments.find(apt => apt.id === appointmentId);
+  //   if (!appointment) return;
 
-    try {
-      setUpdating(true);
-      setError(null);
+  //   try {
+  //     setUpdating(true);
+  //     setError(null);
 
 
 
-      console.log(`🔄 Deleting appointment ${appointmentId}`);
+  //     console.log(`🔄 Deleting appointment ${appointmentId}`);
 
-      await api.deleteAppointment(appointmentId);
+  //     await api.deleteAppointment(appointmentId);
 
-      // Optimistic update + clear cache
-      setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
-      setCache(new Map());
+  //     // Optimistic update + clear cache
+  //     setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
+  //     setCache(new Map());
 
-      showSuccessToast('התור נמחק בהצלחה');
-      console.log('✅ Appointment deleted successfully');
+  //     showSuccessToast('התור נמחק בהצלחה');
+  //     console.log('✅ Appointment deleted successfully');
 
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'שגיאה במחיקת התור';
-      setError(errorMessage);
-      showErrorToast(errorMessage);
-      console.error('❌ Error deleting appointment:', err);
+  //   } catch (err) {
+  //     const errorMessage = err instanceof Error ? err.message : 'שגיאה במחיקת התור';
+  //     setError(errorMessage);
+  //     showErrorToast(errorMessage);
+  //     console.error('❌ Error deleting appointment:', err);
 
-    } finally {
-      setUpdating(false);
-    }
-  }, [appointments, api]);
+  //   } finally {
+  //     setUpdating(false);
+  //   }
+  // }, [appointments, api]);
 
   // ===================================
   // 🛠️ Utility Functions
@@ -746,7 +745,6 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     createAppointment,
     updateAppointmentStatus,
     updateAppointment,
-    deleteAppointment,
     checkConflicts,
     refreshAppointments,
     clearCache,
@@ -804,17 +802,7 @@ export const useAppointmentActions = (businessId: string) => {
     }
   }, [api]);
 
-  const deleteAppointment = useCallback(async (id: string) => {
-    try {
-      await api.deleteAppointment(id);
-      showSuccessToast('התור נמחק בהצלחה');
-    } catch (err) {
-      showErrorToast('שגיאה במחיקת התור');
-    }
-  }, [api]);
-
   return {
     updateStatus,
-    deleteAppointment
   };
 };

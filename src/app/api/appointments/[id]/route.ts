@@ -104,49 +104,49 @@ export async function PUT(
   }
 }
 
-// 🗑️ Delete appointment (DELETE)
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
+// // 🗑️ Delete appointment (DELETE)
+// export async function DELETE(
+//   request: NextRequest,
+//   { params }: { params: Promise<{ id: string }> }
+// ) {
+//   try {
+//     const { id } = await params;
 
-    // 🔒 Authenticate user
-    const auth = await authenticateRequest();
-    if (!auth.user) {
-      return NextResponse.json({ error: auth.error }, { status: 401 });
-    }
+//     // 🔒 Authenticate user
+//     const auth = await authenticateRequest();
+//     if (!auth.user) {
+//       return NextResponse.json({ error: auth.error }, { status: 401 });
+//     }
 
-    // 🔒 Validate appointment ownership
-    const ownership = await validateAppointmentOwnership(auth.user.id, id);
-    if (!ownership.isOwner) {
-      return NextResponse.json({ error: ownership.error }, { status: 404 });
-    }
+//     // 🔒 Validate appointment ownership
+//     const ownership = await validateAppointmentOwnership(auth.user.id, id);
+//     if (!ownership.isOwner) {
+//       return NextResponse.json({ error: ownership.error }, { status: 404 });
+//     }
 
-    // 🗑️ Delete appointment
-    const supabase = await getSupabaseClient('server'); // 🔧 השתמש בsupabase מאומת
+//     // 🗑️ Delete appointment
+//     const supabase = await getSupabaseClient('server'); // 🔧 השתמש בsupabase מאומת
 
-    const { error: deleteError } = await supabase
-      .from('appointments')
-      .delete()
-      .eq('id', id);
+//     const { error: deleteError } = await supabase
+//       .from('appointments')
+//       .delete()
+//       .eq('id', id);
 
-    if (deleteError) {
-      console.error('Delete error:', deleteError);
-      return NextResponse.json({ error: 'שגיאה במחיקת התור' }, { status: 500 });
-    }
+//     if (deleteError) {
+//       console.error('Delete error:', deleteError);
+//       return NextResponse.json({ error: 'שגיאה במחיקת התור' }, { status: 500 });
+//     }
 
-    // 📧 TODO: Send cancellation notification to client
-    // await sendCancellationNotification(appointment.client_phone);
+//     // 📧 TODO: Send cancellation notification to client
+//     // await sendCancellationNotification(appointment.client_phone);
 
-    return NextResponse.json({ message: 'התור נמחק בהצלחה' });
+//     return NextResponse.json({ message: 'התור נמחק בהצלחה' });
 
-  } catch (error) {
-    console.error('Error deleting appointment:', error);
-    return NextResponse.json({ error: 'שגיאת שרת פנימית' }, { status: 500 });
-  }
-}
+//   } catch (error) {
+//     console.error('Error deleting appointment:', error);
+//     return NextResponse.json({ error: 'שגיאת שרת פנימית' }, { status: 500 });
+//   }
+// }
 
 // ===================================
 // COMPARISON: REFACTORING BENEFITS

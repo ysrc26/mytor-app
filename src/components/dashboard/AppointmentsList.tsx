@@ -6,7 +6,6 @@ import {
   Users, Phone, Calendar, Clock, CheckCircle, AlertCircle, X, Edit,
   Trash2, Filter, Search, Copy, ChevronDown, MessageCircle, Sparkles,
   Eye, EyeOff,
-  ChevronUp,
 } from 'lucide-react';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 import { isAppointmentEditable } from '@/lib/appointment-utils';
@@ -412,7 +411,7 @@ const AppointmentsHeader = ({
         </div>
       </div>
 
-      {/* Controls Row 1: DatePicker + Search + Filters */}
+      {/* Controls Row 1: DatePicker + Search + Filters + Pagination + View Mode */}
       <div className="flex flex-col lg:flex-row lg:items-center gap-4">
         {/* DateRangePicker */}
         <DateRangePicker
@@ -422,20 +421,21 @@ const AppointmentsHeader = ({
           className="lg:w-auto"
         />
 
-        {/* Search */}
-        <div className="flex-1 lg:max-w-xs relative">
-          <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <input
-            type="text"
-            placeholder="חיפוש לפי שם, טלפון..."
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full pr-10 pl-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
+        {/* Search + Filter Controls */}
+        <div className="flex items-center gap-2 flex-1">
+          {/* Search */}
+          <div className="flex-1 lg:max-w-xs relative">
+            <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <input
+              type="text"
+              placeholder="חיפוש לפי שם, טלפון..."
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="w-full pr-10 pl-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
 
-        {/* Controls */}
-        <div className="flex items-center gap-2">
+          {/* Filter Button */}
           <button
             onClick={onToggleFilters}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${showFilters
@@ -447,55 +447,11 @@ const AppointmentsHeader = ({
             סינון
           </button>
 
-          {/* View Mode Toggle */}
-          <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-1">
-            <button
-              onClick={() => onViewModeChange('cards')}
-              className={`p-2 rounded transition-colors ${viewMode === 'cards'
-                ? 'bg-white text-blue-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-                }`}
-              title="תצוגת כרטיסים"
-            >
-              <div className="w-4 h-4 grid grid-cols-2 gap-0.5">
-                {[1, 2, 3, 4].map(i => <div key={i} className="bg-current rounded-sm" />)}
-              </div>
-            </button>
-            <button
-              onClick={() => onViewModeChange('table')}
-              className={`p-2 rounded transition-colors ${viewMode === 'table'
-                ? 'bg-white text-blue-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-                }`}
-              title="תצוגת טבלה"
-            >
-              <div className="w-4 h-4 flex flex-col gap-0.5">
-                {[1, 2, 3].map(i => <div key={i} className="bg-current h-0.5 rounded-sm" />)}
-              </div>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Controls Row 2: Pagination + Bulk Actions */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mt-4 pt-4 border-t border-gray-100">
-        {/* Left: Pagination Controls */}
-        <div className="flex items-center gap-3">
-          {canLoadPrevious && (
-            <button
-              onClick={onLoadPrevious}
-              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
-            >
-              <ChevronUp className="h-4 w-4" />
-              טען קודמים
-            </button>
-          )}
-
           {pagination.has_more && (
             <button
               onClick={onLoadMore}
               disabled={loadingMore}
-              className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:cursor-not-allowed"
             >
               <ChevronDown className="h-4 w-4" />
               {loadingMore ? 'טוען...' : `טען עוד (${pagination.total_count - statistics.showing})`}
@@ -503,8 +459,38 @@ const AppointmentsHeader = ({
           )}
         </div>
 
-        {/* Right: Bulk Actions */}
-        {selectedCount > 0 && (
+        {/* View Mode Toggle - Always on the left */}
+        <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-1 lg:ml-auto">
+          <button
+            onClick={() => onViewModeChange('cards')}
+            className={`p-2 rounded transition-colors ${viewMode === 'cards'
+              ? 'bg-white text-blue-600 shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+              }`}
+            title="תצוגת כרטיסים"
+          >
+            <div className="w-4 h-4 grid grid-cols-2 gap-0.5">
+              {[1, 2, 3, 4].map(i => <div key={i} className="bg-current rounded-sm" />)}
+            </div>
+          </button>
+          <button
+            onClick={() => onViewModeChange('table')}
+            className={`p-2 rounded transition-colors ${viewMode === 'table'
+              ? 'bg-white text-blue-600 shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+              }`}
+            title="תצוגת טבלה"
+          >
+            <div className="w-4 h-4 flex flex-col gap-0.5">
+              {[1, 2, 3].map(i => <div key={i} className="bg-current h-0.5 rounded-sm" />)}
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* Controls Row 2: Bulk Actions only */}
+      {selectedCount > 0 && (
+        <div className="flex justify-center mt-4 pt-4 border-t border-gray-100">
           <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
             <span className="text-sm text-blue-700 font-medium">
               {selectedCount} נבחרו
@@ -519,8 +505,8 @@ const AppointmentsHeader = ({
               מחק
             </Button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

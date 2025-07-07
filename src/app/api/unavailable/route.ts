@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase-server';
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
-    
+
     // בדיקת authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     // שליפת תאריכים לא זמינים - משתמש ב-business_id אם קיים, אחרת ב-user_id
     let unavailableDates;
-    
+
     // נסה קודם עם business_id
     const { data: businessUnavailable, error: businessUnavailableError } = await supabase
       .from('unavailable_dates')
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
-    
+
     // בדיקת authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { date, reason } = body;
+    const { date, tag, description } = body;
 
     // ולידציה
     if (!date) {
@@ -144,7 +144,8 @@ export async function POST(request: NextRequest) {
         business_id: business.id,
         user_id: user.id,  // לתאימות לאחור
         date,
-        reason: reason || null
+        tag: body.tag || null,
+        description: body.description || null
       })
       .select()
       .single();

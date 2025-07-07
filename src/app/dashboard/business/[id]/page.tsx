@@ -83,7 +83,6 @@ export default function BusinessDashboard() {
     createAppointment,
     updateAppointmentStatus,
     updateAppointment,
-    deleteAppointment,
     checkConflicts,
     refreshAppointments,
     clearError: clearAppointmentsError,
@@ -220,28 +219,6 @@ export default function BusinessDashboard() {
     setSelectedAppointment(appointment);
     // לעת עתה נציג הודעה - נוסיף את המודאל בהמשך
     showSuccessToast(`עריכת תור של ${appointment.client_name}`);
-  };
-
-  const handleDeleteAppointment = async (appointmentId: string) => {
-    const appointment = appointments.find(apt => apt.id === appointmentId);
-    setDeleteModalData({
-      isOpen: true,
-      appointmentId,
-      appointment: appointment || null
-    });
-  };
-
-  const confirmDeleteAppointment = async () => {
-    if (!deleteModalData.appointmentId) return;
-
-    try {
-      await deleteAppointment(deleteModalData.appointmentId);
-      showSuccessToast('התור נמחק בהצלחה');
-      setDeleteModalData({ isOpen: false, appointmentId: null, appointment: null });
-    } catch (error) {
-      console.error('Error deleting appointment:', error);
-      showErrorToast('שגיאה במחיקת התור');
-    }
   };
 
   // ===================================
@@ -385,9 +362,11 @@ export default function BusinessDashboard() {
         isOpen={sideNavOpen}
         onClose={closeSideNav}
         onOpenModal={(modalType) => {
+          console.log('🔍 Modal type clicked:', modalType);
           if (modalType === 'profile') setProfileModalOpen(true);
           else if (modalType === 'services') setServicesModalOpen(true);
           else if (modalType === 'availability') setAvailabilityModalOpen(true);
+          else if (modalType === 'unavailable-dates') setUnavailableDatesModalOpen(true);
         }}
         onOpenSettingsModal={() => setSettingsModalOpen(true)}
       />
@@ -464,7 +443,6 @@ export default function BusinessDashboard() {
                   loading={appointmentsLoading}
                   onUpdateStatus={handleUpdateAppointmentStatus}
                   onEditAppointment={handleEditAppointment}
-                  onDeleteAppointment={handleDeleteAppointment}
                 />
               )}
 
@@ -559,18 +537,6 @@ export default function BusinessDashboard() {
         businessId={businessId}
         services={services}
         onUpdate={handleUpdateAppointment}
-      />
-
-      <DeleteConfirmationModal
-        isOpen={deleteModalData.isOpen}
-        onClose={() => setDeleteModalData({ isOpen: false, appointmentId: null, appointment: null })}
-        onConfirm={confirmDeleteAppointment}
-        title="מחיקת תור"
-        description="האם אתה בטוח שברצונך למחוק את התור? פעולה זו לא ניתנת לביטול."
-        confirmText="מחק תור"
-        cancelText="ביטול"
-        isDangerous={true}
-        appointment={deleteModalData.appointment}
       />
 
       <UnavailableDatesModal

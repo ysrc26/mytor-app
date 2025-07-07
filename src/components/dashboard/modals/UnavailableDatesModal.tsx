@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Calendar, Coffee, Plane, Heart, Star, Sun, Edit3 } from 'lucide-react';
+import { X, Plus, Trash2, Calendar, Coffee, Plane, Heart, Star, Sun, Edit3, Tag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,13 +10,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { CustomDatePicker } from '@/components/ui/CustomDatePicker';
 import { Badge } from '@/components/ui/badge';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
+import { Description } from '@radix-ui/react-dialog';
 
 interface UnavailableDate {
   id: string;
   business_id?: string;
   user_id?: string;
   date: string;
-  reason?: string;
+  tag?: string;
+  description?: string;
   created_at: string;
 }
 
@@ -26,8 +28,8 @@ interface UnavailableDatesModalProps {
   businessId: string;
 }
 
-// תבניות מוכנות לסיבות נפוצות
-const REASON_TEMPLATES = [
+// תבניות מוכנות לתגים נפוצים
+const TAG_TEMPLATES = [
   { icon: Plane, label: 'חופשה', color: 'bg-blue-100 text-blue-800 border-blue-200' },
   { icon: Heart, label: 'אירוע משפחתי', color: 'bg-pink-100 text-pink-800 border-pink-200' },
   { icon: Coffee, label: 'יום מנוחה', color: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -51,13 +53,14 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
   // Form for adding new blocked date
   const [newDate, setNewDate] = useState({
     date: '',
-    reason: ''
+    tag: '',
+    description: ''
   });
 
   // Form for editing existing date
   const [editForm, setEditForm] = useState({
     id: '',
-    reason: ''
+    tag: ''
   });
 
   // ===== Helper Functions =====
@@ -67,13 +70,13 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
     const month = MONTHS_HEBREW[date.getMonth()];
     const year = date.getFullYear();
     const dayName = date.toLocaleDateString('he-IL', { weekday: 'long' });
-    
+
     return `${dayName}, ${day} ${month} ${year}`;
   };
 
-  const getReasonTemplate = (reason: string) => {
-    return REASON_TEMPLATES.find(template => 
-      template.label.toLowerCase() === reason.toLowerCase()
+  const getTagTemplate = (tag: string) => {
+    return TAG_TEMPLATES.find(template =>
+      template.label.toLowerCase() === tag.toLowerCase()
     );
   };
 
@@ -116,13 +119,14 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           date: newDate.date,
-          reason: newDate.reason || null
+          tag: newDate.tag || null,
+          description: newDate.description || null
         })
       });
 
       if (response.ok) {
         showSuccessToast('תאריך נחסם בהצלחה');
-        setNewDate({ date: '', reason: '' });
+        setNewDate({ date: '', tag: '' , description: ''});
         fetchUnavailableDates();
       } else {
         const error = await response.json();
@@ -158,9 +162,9 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
     }
   };
 
-  const handleEditReason = async (id: string) => {
-    if (!editForm.reason.trim()) {
-      showErrorToast('הזן סיבה');
+  const handleEditTag = async (id: string) => {
+    if (!editForm.tag.trim()) {
+      showErrorToast('הזן תג');
       return;
     }
 
@@ -169,18 +173,18 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reason: editForm.reason
+          tag: editForm.tag
         })
       });
 
       if (response.ok) {
-        showSuccessToast('סיבת החסימה עודכנה');
+        showSuccessToast('תג החסימה עודכן');
         setEditing(null);
-        setEditForm({ id: '', reason: '' });
+        setEditForm({ id: '', tag: '' });
         fetchUnavailableDates();
       } else {
         const error = await response.json();
-        showErrorToast(error.error || 'שגיאה בעדכון הסיבה');
+        showErrorToast(error.error || 'שגיאה בעדכון התג');
       }
     } catch (error) {
       console.error('Error updating reason:', error);
@@ -188,18 +192,18 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
     }
   };
 
-  const startEdit = (dateId: string, currentReason: string) => {
+  const startEdit = (dateId: string, currentTag: string) => {
     setEditing(dateId);
-    setEditForm({ id: dateId, reason: currentReason || '' });
+    setEditForm({ id: dateId, tag: currentTag || '' });
   };
 
   const cancelEdit = () => {
     setEditing(null);
-    setEditForm({ id: '', reason: '' });
+    setEditForm({ id: '', tag: '' });
   };
 
-  const handleReasonTemplateClick = (template: string) => {
-    setNewDate(prev => ({ ...prev, reason: template }));
+  const handleTagTemplateClick = (template: string) => {
+    setNewDate(prev => ({ ...prev, tag: template }));
   };
 
   if (!isOpen) return null;
@@ -246,16 +250,16 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
 
               {/* Reason Templates */}
               <div>
-                <Label>סיבות נפוצות</Label>
+                <Label>תיוג</Label>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {REASON_TEMPLATES.map((template) => (
+                  {TAG_TEMPLATES.map((template) => (
                     <button
                       key={template.label}
-                      onClick={() => handleReasonTemplateClick(template.label)}
+                      onClick={() => handleTagTemplateClick(template.label)}
                       className={`
                         px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200
                         ${template.color} hover:shadow-sm
-                        ${newDate.reason === template.label ? 'ring-2 ring-blue-500' : ''}
+                        ${newDate.tag === template.label ? 'ring-2 ring-blue-500' : ''}
                       `}
                     >
                       <template.icon className="w-3 h-3 ml-1 inline-block" />
@@ -265,19 +269,16 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                 </div>
               </div>
 
-              {/* Custom Reason */}
+              {/* Custom Description */}
               <div>
-                <Label htmlFor="reason">סיבה מותאמת אישית (אופציונלי)</Label>
+                <Label htmlFor="description">תיאור</Label>
                 <Input
-                  id="reason"
-                  value={newDate.reason}
-                  onChange={(e) => setNewDate(prev => ({ ...prev, reason: e.target.value }))}
+                  id="description"
+                  value={newDate.description}
+                  onChange={(e) => setNewDate(prev => ({ ...prev, description: e.target.value }))}
                   placeholder="למשל: ביקור רופא, פגישה חשובה..."
                   maxLength={50}
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  {newDate.reason.length}/50 תווים
-                </p>
               </div>
 
               {/* Add Button */}
@@ -322,7 +323,7 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                 {unavailableDates
                   .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
                   .map((blockedDate) => {
-                    const template = getReasonTemplate(blockedDate.reason || '');
+                    const template = getTagTemplate(blockedDate.tag || '');
                     const dateObj = new Date(blockedDate.date);
                     const isPast = dateObj < new Date();
                     const isEditing = editing === blockedDate.id;
@@ -332,8 +333,8 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                         key={blockedDate.id}
                         className={`
                           p-4 border rounded-lg transition-all duration-200
-                          ${isPast 
-                            ? 'bg-gray-50 border-gray-200 opacity-60' 
+                          ${isPast
+                            ? 'bg-gray-50 border-gray-200 opacity-60'
                             : 'bg-white border-gray-200 hover:border-red-300 hover:shadow-sm'
                           }
                         `}
@@ -357,8 +358,8 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                             {isEditing ? (
                               <div className="space-y-2">
                                 <Input
-                                  value={editForm.reason}
-                                  onChange={(e) => setEditForm(prev => ({ ...prev, reason: e.target.value }))}
+                                  value={editForm.tag}
+                                  onChange={(e) => setEditForm(prev => ({ ...prev, tag: e.target.value }))}
                                   placeholder="הזן סיבה חדשה..."
                                   maxLength={50}
                                   autoFocus
@@ -366,8 +367,8 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                                 <div className="flex gap-2">
                                   <Button
                                     size="sm"
-                                    onClick={() => handleEditReason(blockedDate.id)}
-                                    disabled={!editForm.reason.trim()}
+                                    onClick={() => handleEditTag(blockedDate.id)}
+                                    disabled={!editForm.tag.trim()}
                                   >
                                     שמור
                                   </Button>
@@ -381,25 +382,25 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                                 </div>
                               </div>
                             ) : (
-                              /* Reason - Display Mode */
+                              /* Tag - Display Mode */
                               <div className="flex items-center gap-2">
-                                {blockedDate.reason ? (
+                                {blockedDate.tag || blockedDate.description ? (
                                   <>
                                     {template ? (
                                       <Badge className={`${template.color} text-xs`}>
                                         <template.icon className="w-3 h-3 ml-1" />
-                                        {blockedDate.reason}
+                                        {blockedDate.tag}
                                       </Badge>
                                     ) : (
                                       <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded">
-                                        {blockedDate.reason}
+                                        {blockedDate.tag}
                                       </span>
                                     )}
                                     {!isPast && (
                                       <button
-                                        onClick={() => startEdit(blockedDate.id, blockedDate.reason || '')}
+                                        onClick={() => startEdit(blockedDate.id, blockedDate.tag || '')}
                                         className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                                        title="ערוך סיבה"
+                                        title="ערוך תג"
                                       >
                                         <Edit3 className="w-3 h-3" />
                                       </button>
@@ -410,7 +411,7 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                                     onClick={() => startEdit(blockedDate.id, '')}
                                     className="text-sm text-gray-400 hover:text-blue-600 transition-colors"
                                   >
-                                    + הוסף סיבה
+                                    + הוסף תג
                                   </button>
                                 )}
                               </div>
@@ -424,8 +425,8 @@ export function UnavailableDatesModal({ isOpen, onClose, businessId }: Unavailab
                               disabled={deleting === blockedDate.id}
                               className={`
                                 p-2 rounded-lg transition-colors
-                                ${isPast 
-                                  ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-100' 
+                                ${isPast
+                                  ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
                                   : 'text-red-600 hover:text-red-800 hover:bg-red-50'
                                 }
                               `}

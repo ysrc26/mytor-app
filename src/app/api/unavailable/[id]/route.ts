@@ -128,10 +128,10 @@ export async function PUT(
 
     const { id } = resolvedParams;
     const body = await request.json();
-    const { reason } = body;
+    const { tag } = body;
 
     // Validation
-    if (reason && reason.length > 50) {
+    if (tag && tag.length > 50) {
       return NextResponse.json(
         { error: 'סיבה ארוכה מדי (מקסימום 50 תווים)' },
         { status: 400 }
@@ -170,10 +170,10 @@ export async function PUT(
       existingBlock = userBlock;
     }
 
-    // עדכון הסיבה
+    // עדכון תג
     const { data: updatedBlock, error: updateError } = await supabase
       .from('unavailable_dates')
-      .update({ reason: reason || null })
+      .update({ tag: tag || null })
       .eq('id', id)
       .or(`business_id.eq.${business.id},user_id.eq.${user.id}`)
       .select()
@@ -182,7 +182,7 @@ export async function PUT(
     if (updateError) {
       console.error('Error updating unavailable date:', updateError);
       return NextResponse.json(
-        { error: 'שגיאה בעדכון הסיבה' },
+        { error: 'שגיאה בעדכון התג' },
         { status: 500 }
       );
     }

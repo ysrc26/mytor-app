@@ -52,6 +52,7 @@ export interface UseAppointmentsResult {
     total_pages: number;
     has_more: boolean;
   };
+  
   dateRange: { start?: string; end?: string };
 
   // Filters
@@ -129,6 +130,15 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     };
   }, []);
 
+  interface UnavailableDate {
+  id: string;
+  business_id?: string;
+  user_id?: string;
+  date: string;
+  tag?: string;
+  description?: string;
+  created_at: string;
+}
   /**
    * טעינת תורים עם פילטרים
    */
@@ -170,6 +180,31 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
         include_past: false,
         ...apiFilters
       });
+
+      const blockedResponse = await fetch('/api/unavailable');
+      if (blockedResponse.ok) {
+        const blockedDates = await blockedResponse.json();
+
+        // המר לפורמט תור
+        const blockedAppointments = blockedDates.map((blocked: UnavailableDate) => ({
+          id: `blocked-${blocked.id}`,
+          business_id: businessId,
+          date: blocked.date,
+          start_time: '00:00',
+          end_time: '23:59',
+          status: 'blocked' as const,
+          client_name: blocked.tag || 'יום חסום',
+          client_phone: '',
+          note: blocked.description || '',
+          type: 'blocked',
+          tag: blocked.tag,
+          description: blocked.description,
+          created_at: blocked.created_at
+        }));
+
+        // צרף לתורים הרגילים
+        response.appointments = [...response.appointments, ...blockedAppointments];
+      }
 
       setAppointments(response.appointments);
       setPagination(response.pagination);

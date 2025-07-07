@@ -21,7 +21,6 @@ interface AppointmentsListProps {
   services: Service[];
   loading?: boolean;
   onUpdateStatus: (appointmentId: string, status: 'confirmed' | 'declined' | 'cancelled') => Promise<void>;
-  onDeleteAppointment: (appointmentId: string) => Promise<void>;
   onEditAppointment?: (appointment: Appointment) => void;
   businessId: string;
   pagination: {
@@ -49,7 +48,6 @@ export const AppointmentsList = ({
   businessId,
   loading = false,
   onUpdateStatus,
-  onDeleteAppointment,
   onEditAppointment,
   pagination,
   loadingMore,
@@ -191,30 +189,6 @@ export const AppointmentsList = ({
     }
   };
 
-  const handleDelete = async (appointmentId: string) => {
-    const appointment = appointments.find(apt => apt.id === appointmentId);
-    if (!appointment) return;
-
-    if (!confirm(`האם אתה בטוח שברצונך למחוק את התור של ${appointment.client_name}?`)) {
-      return;
-    }
-
-    if (deletingIds.has(appointmentId)) return;
-
-    try {
-      setDeletingIds(prev => new Set(prev).add(appointmentId));
-      await onDeleteAppointment(appointmentId);
-    } catch (error) {
-      showErrorToast('שגיאה במחיקת התור');
-    } finally {
-      setDeletingIds(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(appointmentId);
-        return newSet;
-      });
-    }
-  };
-
   const handleBulkAction = async (action: 'confirm' | 'decline') => {
     if (selectedAppointments.size === 0) return;
 
@@ -310,12 +284,9 @@ export const AppointmentsList = ({
           }}
           onUpdateStatus={handleStatusUpdate}
           onStatusUpdate={handleStatusUpdate}
-          onDelete={handleDelete}
-          onDeleteAppointment={handleDelete}
           onEdit={onEditAppointment}
           onEditAppointment={onEditAppointment}
           updatingIds={updatingIds}
-          deletingIds={deletingIds}
         />
       )}
     </div>
@@ -631,12 +602,9 @@ interface AppointmentsContentProps {
   onSelectAppointment: (id: string, selected: boolean) => void;
   onUpdateStatus: (id: string, status: 'confirmed' | 'declined' | 'cancelled') => void;
   onStatusUpdate: (id: string, status: 'confirmed' | 'declined' | 'cancelled') => Promise<void>;
-  onDelete: (id: string) => void;
-  onDeleteAppointment: (id: string) => Promise<void>;
   onEdit?: (appointment: Appointment) => void;
   onEditAppointment?: (appointment: Appointment) => void;
   updatingIds: Set<string>;
-  deletingIds: Set<string>;
 }
 
 const AppointmentsContent = ({
@@ -648,12 +616,9 @@ const AppointmentsContent = ({
   onSelectAppointment,
   onUpdateStatus,
   onStatusUpdate,
-  onDelete,
-  onDeleteAppointment,
   onEdit,
   onEditAppointment,
-  updatingIds,
-  deletingIds
+  updatingIds
 }: AppointmentsContentProps) => {
   if (viewMode === 'table') {
     return (
@@ -663,9 +628,7 @@ const AppointmentsContent = ({
         selectedAppointments={selectedAppointments}
         onToggleSelection={onToggleSelection}
         updatingIds={updatingIds}
-        deletingIds={deletingIds}
         onUpdateStatus={onUpdateStatus}
-        onDelete={onDelete}
         onEdit={onEdit}
       />
     );
@@ -678,10 +641,8 @@ const AppointmentsContent = ({
       selectedAppointments={selectedAppointments}
       onSelectAppointment={onSelectAppointment}
       onStatusUpdate={onStatusUpdate}
-      onDeleteAppointment={onDeleteAppointment}
       onEditAppointment={onEditAppointment}
       updatingIds={updatingIds}
-      deletingIds={deletingIds}
     />
   );
 };
@@ -696,10 +657,8 @@ interface AppointmentCardsProps {
   selectedAppointments: Set<string>;
   onSelectAppointment: (id: string, selected: boolean) => void;
   onStatusUpdate: (id: string, status: 'confirmed' | 'declined' | 'cancelled') => Promise<void>;
-  onDeleteAppointment: (id: string) => Promise<void>;
   onEditAppointment?: (appointment: Appointment) => void;
   updatingIds: Set<string>;
-  deletingIds: Set<string>;
 }
 
 const AppointmentCards = ({
@@ -708,10 +667,8 @@ const AppointmentCards = ({
   selectedAppointments,
   onSelectAppointment,
   onStatusUpdate,
-  onDeleteAppointment,
   onEditAppointment,
-  updatingIds,
-  deletingIds
+  updatingIds
 }: AppointmentCardsProps) => {
   const getServiceName = (serviceId: string) => {
     const service = services.find(s => s.id === serviceId);
@@ -758,7 +715,6 @@ const AppointmentCards = ({
       {appointments.map((appointment) => {
         const isSelected = selectedAppointments.has(appointment.id);
         const isUpdating = updatingIds.has(appointment.id);
-        const isDeleting = deletingIds.has(appointment.id);
         const isPast = isAppointmentPast(appointment.date, appointment.start_time);
         const isEditable = isAppointmentEditable({ date: appointment.date, time: appointment.start_time });
 
@@ -836,7 +792,7 @@ const AppointmentCards = ({
                   <Button
                     size="sm"
                     onClick={() => onStatusUpdate(appointment.id, 'confirmed')}
-                    disabled={isUpdating || isDeleting}
+                    disabled={isUpdating}
                     className="flex-1"
                   >
                     {isUpdating ? (
@@ -853,7 +809,7 @@ const AppointmentCards = ({
                     size="sm"
                     variant="outline"
                     onClick={() => onStatusUpdate(appointment.id, 'declined')}
-                    disabled={isUpdating || isDeleting}
+                    disabled={isUpdating}
                     className="flex-1"
                   >
                     <X className="w-3 h-3 ml-1" />
@@ -867,7 +823,7 @@ const AppointmentCards = ({
                   size="sm"
                   variant="outline"
                   onClick={() => onStatusUpdate(appointment.id, 'cancelled')}
-                  disabled={isUpdating || isDeleting}
+                  disabled={isUpdating}
                   className="flex-1"
                 >
                   <X className="w-3 h-3 ml-1" />
@@ -880,7 +836,7 @@ const AppointmentCards = ({
                   size="sm"
                   variant="outline"
                   onClick={() => onEditAppointment(appointment)}
-                  disabled={isUpdating || isDeleting}
+                  disabled={isUpdating}
                 >
                   <Edit className="w-3 h-3" />
                 </Button>
@@ -903,9 +859,7 @@ interface AppointmentsTableProps {
   selectedAppointments: Set<string>;
   onToggleSelection: (appointments: Set<string>) => void;
   updatingIds: Set<string>;
-  deletingIds: Set<string>;
   onUpdateStatus: (id: string, status: 'confirmed' | 'declined' | 'cancelled') => void;
-  onDelete: (id: string) => void;
   onEdit?: (appointment: Appointment) => void;
 }
 
@@ -915,9 +869,7 @@ const AppointmentsTable = ({
   selectedAppointments,
   onToggleSelection,
   updatingIds,
-  deletingIds,
   onUpdateStatus,
-  onDelete,
   onEdit
 }: AppointmentsTableProps) => {
   const toggleAllSelection = () => {
@@ -968,9 +920,7 @@ const AppointmentsTable = ({
                 isSelected={selectedAppointments.has(appointment.id)}
                 onToggleSelection={() => toggleSelection(appointment.id)}
                 isUpdating={updatingIds.has(appointment.id)}
-                isDeleting={deletingIds.has(appointment.id)}
                 onUpdateStatus={onUpdateStatus}
-                onDelete={onDelete}
                 onEdit={onEdit}
               />
             ))}
@@ -991,9 +941,7 @@ interface AppointmentTableRowProps {
   isSelected: boolean;
   onToggleSelection: () => void;
   isUpdating: boolean;
-  isDeleting: boolean;
   onUpdateStatus: (id: string, status: 'confirmed' | 'declined' | 'cancelled') => void;
-  onDelete: (id: string) => void;
   onEdit?: (appointment: Appointment) => void;
 }
 
@@ -1003,9 +951,7 @@ const AppointmentTableRow = ({
   isSelected,
   onToggleSelection,
   isUpdating,
-  isDeleting,
   onUpdateStatus,
-  onDelete,
   onEdit
 }: AppointmentTableRowProps) => {
   const appointmentDateTime = new Date(`${appointment.date}T${appointment.start_time}`);
@@ -1102,7 +1048,7 @@ const AppointmentTableRow = ({
             <>
               <button
                 onClick={() => onUpdateStatus(appointment.id, 'confirmed')}
-                disabled={isUpdating || isDeleting}
+                disabled={isUpdating}
                 className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors disabled:opacity-50"
                 title="אשר"
               >
@@ -1114,7 +1060,7 @@ const AppointmentTableRow = ({
               </button>
               <button
                 onClick={() => onUpdateStatus(appointment.id, 'declined')}
-                disabled={isUpdating || isDeleting}
+                disabled={isUpdating}
                 className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors disabled:opacity-50"
                 title="דחה"
               >
@@ -1126,7 +1072,7 @@ const AppointmentTableRow = ({
           {appointment.status === 'confirmed' && !isPast && (
             <button
               onClick={() => onUpdateStatus(appointment.id, 'cancelled')}
-              disabled={isUpdating || isDeleting}
+              disabled={isUpdating}
               className="p-1 text-orange-600 hover:bg-orange-100 rounded transition-colors disabled:opacity-50"
               title="בטל"
             >
@@ -1137,7 +1083,7 @@ const AppointmentTableRow = ({
           {isEditable && appointment.status !== 'declined' && onEdit && (
             <button
               onClick={() => onEdit(appointment)}
-              disabled={isUpdating || isDeleting}
+              disabled={isUpdating}
               className="p-1 text-blue-600 hover:bg-blue-100 rounded transition-colors disabled:opacity-50"
               title="ערוך"
             >

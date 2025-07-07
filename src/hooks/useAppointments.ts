@@ -1,9 +1,10 @@
 // src/hooks/useAppointments.ts
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { BusinessAPI } from '@/lib/business-api';
 import { checkBusinessOwnerConflicts, isAppointmentEditable } from '@/lib/appointment-utils';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@/lib/toast-utils';
 import type { Appointment, Service } from '@/lib/types';
+import { timeUtils } from '@/lib/time-utils';
 
 export interface UseAppointmentsFilters {
   status?: 'all' | 'pending' | 'confirmed' | 'declined' | 'cancelled';
@@ -43,6 +44,15 @@ export interface UseAppointmentsResult {
   loading: boolean;
   updating: boolean;
   error: string | null;
+  loadingMore: boolean;
+  pagination: {
+    current_page: number;
+    limit: number;
+    total_count: number;
+    total_pages: number;
+    has_more: boolean;
+  };
+  dateRange: { start?: string; end?: string };
 
   // Filters
   filters: UseAppointmentsFilters;
@@ -51,6 +61,10 @@ export interface UseAppointmentsResult {
 
   // Actions
   loadAppointments: (filters?: UseAppointmentsFilters) => Promise<void>;
+  loadMoreAppointments: () => Promise<void>;
+  loadPreviousMonth: () => Promise<void>;
+  getDefaultDateRange: () => { start: string; end: string };
+  setDateRangeAndLoad: (start?: string, end?: string) => Promise<void>;
   createAppointment: (data: CreateAppointmentData) => Promise<Appointment | null>;
   updateAppointmentStatus: (appointmentId: string, status: 'confirmed' | 'declined' | 'cancelled') => Promise<void>;
   updateAppointment: (appointmentId: string, data: { date?: string; time?: string; service_id?: string }) => Promise<void>;
@@ -58,6 +72,7 @@ export interface UseAppointmentsResult {
   checkConflicts: (serviceId: string, date: string, time: string, excludeId?: string) => Promise<{ hasConflict: boolean; error?: string }>;
   refreshAppointments: () => Promise<void>;
   clearError: () => void;
+  clearCache: () => void;
 
   // Utilities
   isAppointmentPast: (appointment: Appointment) => boolean;
@@ -80,6 +95,22 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<UseAppointmentsFilters>({ status: 'all' });
+  const [pagination, setPagination] = useState({
+    current_page: 1,
+    limit: 50,
+    total_count: 0,
+    total_pages: 0,
+    has_more: false
+  });
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
+  const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>({});
+  const [cache, setCache] = useState<Map<string, {
+    appointments: Appointment[];
+    timestamp: number;
+    pagination: any;
+  }>>(new Map());
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<NodeJS.Timeout | null>(null);
 
   // יצירת API instance
   const api = useMemo(() => new BusinessAPI(businessId), [businessId]);
@@ -87,6 +118,17 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
   // ===================================
   // 🔄 Data Loading Functions
   // ===================================
+
+  const getDefaultDateRange = useCallback(() => {
+    const today = new Date();
+    const nextMonth = new Date(today);
+    nextMonth.setMonth(today.getMonth() + 1);
+
+    return {
+      start: today.toISOString().split('T')[0],
+      end: nextMonth.toISOString().split('T')[0]
+    };
+  }, []);
 
   /**
    * טעינת תורים עם פילטרים
@@ -99,7 +141,20 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       setError(null);
 
       const filtersToUse = queryFilters || filters;
+      const cacheKey = `${filtersToUse.status || 'all'}_${dateRange.start || ''}_${dateRange.end || ''}`;
+      const cachedData = cache.get(cacheKey);
+      const now = Date.now();
+
       console.log('🔄 Loading appointments with filters:', filtersToUse);
+
+      // בדוק אם יש מטמון תקף (פחות משעה)
+      if (cachedData && (now - cachedData.timestamp) < 3600000) {
+        console.log('🎯 Using cached data for:', cacheKey);
+        setAppointments(cachedData.appointments);
+        setPagination(cachedData.pagination);
+        setLoading(false);
+        return;
+      }
 
       // הכנת פרמטרים לAPI
       const apiFilters: any = {};
@@ -108,10 +163,35 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
         apiFilters.status = filtersToUse.status;
       }
 
-      const appointmentsData = await api.fetchAppointments(apiFilters);
-      setAppointments(appointmentsData);
+      const response = await api.fetchAppointments({
+        start_date: dateRange.start,
+        end_date: dateRange.end,
+        page: 1, // Reset to first page
+        limit: 50,
+        include_past: false,
+        ...apiFilters
+      });
 
-      console.log(`✅ Loaded ${appointmentsData.length} appointments`);
+      setAppointments(response.appointments);
+      setPagination(response.pagination);
+
+      setCache(prev => {
+        const newCache = new Map(prev);
+        newCache.set(cacheKey, {
+          appointments: response.appointments,
+          timestamp: now,
+          pagination: response.pagination
+        });
+
+        // ניקוי מטמון ישן (יותר מ-2 שעות)
+        for (const [key, value] of newCache.entries()) {
+          if (now - value.timestamp > 7200000) {
+            newCache.delete(key);
+          }
+        }
+
+        return newCache;
+      });
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'שגיאה בטעינת תורים';
@@ -124,12 +204,55 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     }
   }, [businessId, filters, api]);
 
+  // שמור reference לפונקציה כדי שלא תשתנה
+  const loadAppointmentsRef = useRef(loadAppointments);
+  loadAppointmentsRef.current = loadAppointments;
+
   /**
    * טעינה ראשונית
    */
   useEffect(() => {
-    loadAppointments();
-  }, [loadAppointments]);
+    if (businessId) {
+      loadAppointmentsRef.current();
+    }
+  }, [businessId]); // רק businessId, לא loadAppointments!
+
+  // הוסף useEffect נוסף:
+  useEffect(() => {
+    return () => {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+      }
+    };
+  }, [autoRefreshInterval]);
+
+  // הוסף useEffect חדש אחרי הקיים:
+  useEffect(() => {
+    // בדוק אם יש תורים של היום בטווח הנוכחי
+    const today = new Date().toISOString().split('T')[0];
+    const hasTodayInRange = (!dateRange.start || dateRange.start <= today) &&
+      (!dateRange.end || dateRange.end >= today);
+
+    if (hasTodayInRange) {
+      // הגדר רענון כל שעה
+      const interval = setInterval(() => {
+        console.log('🔄 Auto-refreshing today appointments');
+        loadAppointments();
+      }, 3600000); // כל שעה
+
+      setAutoRefreshInterval(interval);
+
+      return () => {
+        if (interval) clearInterval(interval);
+      };
+    } else {
+      // נקה רענון אם אין תורים של היום
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        setAutoRefreshInterval(null);
+      }
+    }
+  }, [dateRange]);
 
   // ===================================
   // 📊 Computed Values
@@ -261,6 +384,10 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       setUpdating(true);
       setError(null);
 
+      setAppointments(prev => prev.map(apt =>
+        apt.id === appointmentId ? { ...apt, status } : apt
+      ));
+
       console.log(`🔄 Updating appointment ${appointmentId} status to ${status}`);
 
       await api.updateAppointmentStatus(appointmentId, status);
@@ -351,12 +478,15 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
       setUpdating(true);
       setError(null);
 
+
+
       console.log(`🔄 Deleting appointment ${appointmentId}`);
 
       await api.deleteAppointment(appointmentId);
 
-      // Optimistic update
+      // Optimistic update + clear cache
       setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
+      setCache(new Map());
 
       showSuccessToast('התור נמחק בהצלחה');
       console.log('✅ Appointment deleted successfully');
@@ -453,6 +583,130 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     setFilters({ status: 'all' });
   }, []);
 
+  /**
+   * 
+   */
+  const loadMoreAppointments = useCallback(async () => {
+    if (!pagination.has_more || loadingMore) return;
+
+    try {
+      setLoadingMore(true);
+      const response = await api.fetchAppointments({
+        start_date: dateRange.start,
+        end_date: dateRange.end,
+        page: pagination.current_page + 1,
+        limit: pagination.limit,
+        include_past: false,
+        status: filters.status !== 'all' ? filters.status : undefined
+      });
+
+      setAppointments(prev => {
+        const existingIds = new Set(prev.map(apt => apt.id));
+        const newAppointments = response.appointments.filter(apt => !existingIds.has(apt.id));
+        return [...prev, ...newAppointments];
+      });
+
+      setPagination(response.pagination);
+
+    } catch (err) {
+      console.error('Error loading more appointments:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [api, pagination, dateRange, filters.status, loadingMore]);
+
+  /**
+   * 
+   */
+  const setDateRangeAndLoad = useCallback(async (start?: string, end?: string) => {
+    setCache(new Map());
+    setDateRange({ start, end });
+    try {
+      setLoading(true);
+      setError(null); // נקה שגיאות קודמות
+
+      const response = await api.fetchAppointments({
+        start_date: start,
+        end_date: end,
+        page: 1,
+        limit: 50,
+        include_past: !start && !end,
+        status: filters.status !== 'all' ? filters.status : undefined
+      });
+
+      setAppointments(response.appointments);
+      setPagination(response.pagination);
+      console.log(`✅ Loaded ${response.appointments.length} appointments for date range`);
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'שגיאה בטעינת תורים';
+      setError(errorMessage);
+      console.error('❌ Error loading appointments by date range:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [api, filters.status]);
+
+  const clearCache = useCallback(() => {
+    setCache(new Map());
+    console.log('🧹 Cache cleared');
+  }, []);
+
+  // הוסף לפני ה-return:
+  const loadPreviousMonth = useCallback(async () => {
+    if (!dateRange.start) return;
+
+    const currentStart = new Date(dateRange.start);
+    const previousMonth = new Date(currentStart);
+    previousMonth.setMonth(currentStart.getMonth() - 1);
+
+    const newStart = timeUtils.dateToLocalString(previousMonth);
+
+    try {
+      setLoading(true);
+
+      const response = await api.fetchAppointments({
+        start_date: newStart,
+        end_date: dateRange.end,
+        page: 1,
+        limit: 50,
+        include_past: true,
+        status: filters.status !== 'all' ? filters.status : undefined
+      });
+      setAppointments(response.appointments);
+      setPagination(response.pagination);
+      setDateRange({ start: newStart, end: dateRange.end });
+
+      // // הוסף תורים קודמים לתחילת הרשימה
+      // setAppointments(prev => {
+      //   const existingIds = new Set(prev.map(apt => apt.id));
+      //   const newAppointments = response.appointments.filter(apt => !existingIds.has(apt.id));
+      //   const combined = [...newAppointments, ...prev].sort((a, b) => {
+      //     const dateA = new Date(`${a.date} ${a.start_time}`);
+      //     const dateB = new Date(`${b.date} ${b.start_time}`);
+      //     return dateA.getTime() - dateB.getTime();
+      //   });
+
+      //   // 🔧 עדכן pagination לפי הכמות החדשה
+      //   setPagination(prev => ({
+      //     ...prev,
+      //     total_count: combined.length,
+      //     limit: Math.max(50, combined.length), // הגדל limit אם צריך
+      //     has_more: false // אין עוד לטעון כשמציגים הכל
+      //   }));
+
+      //   return combined;
+      // });
+
+      // setDateRange(prev => ({ ...prev, start: newStart }));
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'שגיאה בטעינת תורים קודמים');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, dateRange, filters.status]);
+
   // ===================================
   // 📊 Return Hook Result
   // ===================================
@@ -473,6 +727,10 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
     loading,
     updating,
     error,
+    loadingMore,
+    pagination,
+    dateRange,
+
 
     // Filters
     filters,
@@ -481,12 +739,17 @@ export const useAppointments = (businessId: string, services: Service[] = []): U
 
     // Actions
     loadAppointments,
+    loadMoreAppointments,
+    loadPreviousMonth,
+    getDefaultDateRange,
+    setDateRangeAndLoad,
     createAppointment,
     updateAppointmentStatus,
     updateAppointment,
     deleteAppointment,
     checkConflicts,
     refreshAppointments,
+    clearCache,
     clearError,
 
     // Utilities

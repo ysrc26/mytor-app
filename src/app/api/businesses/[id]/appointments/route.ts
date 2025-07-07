@@ -18,24 +18,76 @@ export async function GET(
       return NextResponse.json({ error: authBusinessError || 'לא מורשה' }, { status: 401 });
     }
 
-    const { data: appointments, error } = await supabase
+    // Parse query parameters - הוסף אחרי השורה של authenticateBusinessRequest
+    const { searchParams } = new URL(request.url);
+    const startDate = searchParams.get('start_date');
+    const endDate = searchParams.get('end_date');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
+    const includePast = searchParams.get('include_past') === 'true';
+    const status = searchParams.get('status');
+
+    // Calculate offset
+    const offset = (page - 1) * limit;
+
+    // Build query with filters
+    let query = supabase
       .from('appointments')
-      .select(`*,
-        services (
+      .select(`
+        *,
+        services!left (
           id,
           name,
           duration_minutes,
           price
         )
-      `)
-      .eq('business_id', businessId)
-      .order('created_at', { ascending: false });
+      `, { count: 'exact' })
+      .eq('business_id', businessId);
+
+    // Apply date filters
+    if (startDate && endDate) {
+      query = query.gte('date', startDate).lte('date', endDate);
+    } else if (!includePast) {
+      const today = new Date().toISOString().split('T')[0];
+      query = query.gte('date', today);
+    }
+
+    // Apply status filter
+    if (status && status !== 'all') {
+      query = query.eq('status', status);
+    }
+
+    // Apply pagination
+    query = query
+      .order('date', { ascending: true })
+      .order('start_time', { ascending: true })
+      .range(offset, offset + limit - 1);
+
+    const { data: appointments, error, count } = await query;
 
     if (error) {
       return NextResponse.json({ error: 'שגיאה בשליפת התורים' }, { status: 500 });
     }
 
-    return NextResponse.json(appointments || []);
+    const totalCount = count || 0;
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasMore = page < totalPages;
+
+    return NextResponse.json({
+      appointments: appointments || [],
+      pagination: {
+        current_page: page,
+        limit,
+        total_count: totalCount,
+        total_pages: totalPages,
+        has_more: hasMore
+      },
+      date_range: {
+        start: startDate,
+        end: endDate,
+        include_past: includePast
+      }
+    });
 
   } catch (error) {
     return NextResponse.json({ error: 'שגיאת שרת פנימית' }, { status: 500 });

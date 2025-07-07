@@ -1,3 +1,4 @@
+// src/app/dashboard/business/[id]/page.tsx
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -16,6 +17,8 @@ import { TabNavigation, type TabType } from '@/components/dashboard/TabNavigatio
 import { PendingAppointments } from '@/components/dashboard/PendingAppointments';
 import { CalendarView } from '@/components/dashboard/CalendarView';
 import { AppointmentsList } from '@/components/dashboard/AppointmentsList';
+import { DateRangePicker } from '@/components/dashboard/DateRangePicker';
+import { AppointmentsControls } from '@/components/dashboard/AppointmentsControls';
 
 // Modals
 import { BusinessProfileModal } from '@/components/dashboard/modals/BusinessProfileModal';
@@ -87,6 +90,12 @@ export default function BusinessDashboard() {
     isAppointmentPast,
     isAppointmentToday,
     canEditAppointment,
+    loadingMore,
+    pagination,
+    dateRange,
+    loadMoreAppointments,
+    setDateRangeAndLoad,
+    loadPreviousMonth,
     api: appointmentsApi
   } = useAppointments(businessId, services);
 
@@ -442,7 +451,14 @@ export default function BusinessDashboard() {
 
               {activeTab === 'appointments' && (
                 <AppointmentsList
-                  appointments={appointments}
+                  appointments={filteredAppointments}
+                  pagination={pagination}
+                  loadingMore={loadingMore}
+                  dateRange={dateRange}
+                  onLoadMore={loadMoreAppointments}
+                  onLoadPrevious={loadPreviousMonth}
+                  onDateRangeChange={setDateRangeAndLoad}
+                  onRefresh={refreshAppointments}
                   services={services}
                   businessId={businessId}
                   loading={appointmentsLoading}

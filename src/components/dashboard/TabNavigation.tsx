@@ -45,7 +45,6 @@ export const TabNavigation = ({
       key: 'appointments', 
       label: 'תורים', 
       icon: Users,
-      badge: appointmentsCount,
       description: 'ניהול כל התורים'
     },
     { 
@@ -221,7 +220,7 @@ export const AnimatedTabNavigation = ({ activeTab, onTabChange, pendingCount, ap
   const tabs: Tab[] = [
     { key: 'pending', label: 'ממתין לאישור', icon: Clock, badge: pendingCount },
     { key: 'calendar', label: 'יומן', icon: Calendar },
-    { key: 'appointments', label: 'תורים', icon: Users, badge: appointmentsCount },
+    { key: 'appointments', label: 'תורים', icon: Users },
     { key: 'premium', label: 'פרימיום', icon: Crown }
   ];
 

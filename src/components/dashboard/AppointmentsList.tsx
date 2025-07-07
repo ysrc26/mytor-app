@@ -9,9 +9,12 @@ import {
 } from 'lucide-react';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 import { isAppointmentEditable } from '@/lib/appointment-utils';
+import { timeUtils } from '@/lib/time-utils';
 import type { Appointment, Service } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DateRangePicker } from './DateRangePicker';
+import { AppointmentsControls } from './AppointmentsControls';
 
 interface AppointmentsListProps {
   appointments: Appointment[];
@@ -21,6 +24,19 @@ interface AppointmentsListProps {
   onDeleteAppointment: (appointmentId: string) => Promise<void>;
   onEditAppointment?: (appointment: Appointment) => void;
   businessId: string;
+  pagination: {
+    current_page: number;
+    limit: number;
+    total_count: number;
+    total_pages: number;
+    has_more: boolean;
+  };
+  loadingMore: boolean;
+  dateRange: { start?: string; end?: string };
+  onLoadMore: () => void;
+  onLoadPrevious: () => void;
+  onDateRangeChange: (start?: string, end?: string) => void;
+  onRefresh: () => void;
 }
 
 type FilterStatus = 'all' | 'pending' | 'confirmed' | 'declined' | 'cancelled';
@@ -35,6 +51,13 @@ export const AppointmentsList = ({
   onUpdateStatus,
   onDeleteAppointment,
   onEditAppointment,
+  pagination,
+  loadingMore,
+  dateRange,
+  onLoadMore,
+  onLoadPrevious,
+  onDateRangeChange,
+  onRefresh
 }: AppointmentsListProps) => {
   // ===================================
   // 🎯 State Management
@@ -45,7 +68,6 @@ export const AppointmentsList = ({
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [selectedAppointments, setSelectedAppointments] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
-  const [showPastAppointments, setShowPastAppointments] = useState(false);
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
@@ -62,13 +84,20 @@ export const AppointmentsList = ({
     }
 
     // Filter out past appointments by default
-    if (!showPastAppointments) {
-      const now = new Date();
-      filtered = filtered.filter(apt => {
-        const appointmentDateTime = new Date(`${apt.date}T${apt.start_time}`);
-        return appointmentDateTime >= now;
-      });
-    }
+    // const today = timeUtils.dateToLocalString(new Date());
+    // filtered = filtered.filter(apt => {
+    //   // בדוק אם התאריך עבר
+    //   if (timeUtils.isPastDate(new Date(apt.date))) {
+    //     return false;
+    //   }
+
+    //   // אם זה היום, בדוק אם השעה עברה
+    //   if (apt.date === today) {
+    //     return !timeUtils.isPastTime(apt.start_time, new Date(apt.date));
+    //   }
+
+    //   return true;
+    // });
 
     // Filter by search query
     if (searchQuery.trim()) {
@@ -100,20 +129,24 @@ export const AppointmentsList = ({
     });
 
     return filtered;
-  }, [appointments, filterStatus, showPastAppointments, searchQuery, sortBy]);
+  }, [appointments, filterStatus, searchQuery, sortBy]);
 
   const statistics = useMemo(() => {
     // Filter appointments based on current view settings
     let visibleAppointments = [...appointments];
 
     // Apply same filters as the main view
-    if (!showPastAppointments) {
-      const now = new Date();
-      visibleAppointments = visibleAppointments.filter(apt => {
-        const appointmentDateTime = new Date(`${apt.date}T${apt.start_time}`);
-        return appointmentDateTime >= now;
-      });
-    }
+    // תמיד הסתר תורים שעברו בסטטיסטיקות
+    // const today = timeUtils.dateToLocalString(new Date());
+    // visibleAppointments = visibleAppointments.filter(apt => {
+    //   if (timeUtils.isPastDate(new Date(apt.date))) {
+    //     return false;
+    //   }
+    //   if (apt.date === today) {
+    //     return !timeUtils.isPastTime(apt.start_time, new Date(apt.date));
+    //   }
+    //   return true;
+    // });
 
     const total = visibleAppointments.length;
     const pending = visibleAppointments.filter(apt => apt.status === 'pending').length;
@@ -121,13 +154,14 @@ export const AppointmentsList = ({
     const declined = visibleAppointments.filter(apt => apt.status === 'declined').length;
     const cancelled = visibleAppointments.filter(apt => apt.status === 'cancelled').length;
     const showing = filteredAndSortedAppointments.length;
-    const today = new Date().toISOString().split('T')[0];
+    const today = timeUtils.dateToLocalString(new Date());
     const todayCount = visibleAppointments.filter(apt => apt.date === today && apt.status === 'confirmed').length;
 
     // Calculate past appointments count (only when showing all appointments)
-    const pastCount = showPastAppointments ? 0 : appointments.filter(apt => {
-      const appointmentDateTime = new Date(`${apt.date}T${apt.start_time}`);
-      return appointmentDateTime < new Date();
+    const pastCount = appointments.filter(apt => {
+      const today = timeUtils.dateToLocalString(new Date());
+      return timeUtils.isPastDate(new Date(apt.date)) ||
+        (apt.date === today && timeUtils.isPastTime(apt.start_time, new Date(apt.date)));
     }).length;
 
     return {
@@ -140,7 +174,7 @@ export const AppointmentsList = ({
       todayCount,
       pastCount
     };
-  }, [appointments, filteredAndSortedAppointments, showPastAppointments]);
+  }, [appointments, filteredAndSortedAppointments]);
 
   // ===================================
   // 🔧 Action Handlers
@@ -232,9 +266,30 @@ export const AppointmentsList = ({
         onViewModeChange={setViewMode}
         selectedCount={selectedAppointments.size}
         onBulkAction={handleBulkAction}
-        showPastAppointments={showPastAppointments}
-        onToggleShowPast={() => setShowPastAppointments(!showPastAppointments)}
       />
+
+      {/* Date Range Picker ו-Controls */}
+      <div className="space-y-4 mb-6">
+        <DateRangePicker
+          startDate={dateRange.start}
+          endDate={dateRange.end}
+          onDateRangeChange={onDateRangeChange}
+          className="w-full sm:w-auto"
+        />
+
+        <AppointmentsControls
+          totalCount={appointments.length}
+          showingCount={filteredAndSortedAppointments.length}
+          pagination={pagination}
+          loading={loading}
+          loadingMore={loadingMore}
+          dateRange={dateRange}
+          onLoadMore={onLoadMore}
+          onLoadPrevious={onLoadPrevious}
+          onRefresh={onRefresh}
+          canLoadPrevious={!!dateRange.start}
+        />
+      </div>
 
       {/* Filters Panel */}
       {showFilters && (
@@ -245,7 +300,6 @@ export const AppointmentsList = ({
           onSortChange={setSortBy}
           services={services}
           appointments={appointments}
-          showPastAppointments={showPastAppointments}
         />
       )}
 
@@ -254,11 +308,9 @@ export const AppointmentsList = ({
         <EmptyState
           searchQuery={searchQuery}
           filterStatus={filterStatus}
-          showPastAppointments={showPastAppointments}
           onClearFilters={() => {
             setSearchQuery('');
             setFilterStatus('all');
-            setShowPastAppointments(false);
           }}
         />
       ) : (
@@ -307,8 +359,6 @@ interface AppointmentsHeaderProps {
   onViewModeChange: (mode: ViewMode) => void;
   selectedCount: number;
   onBulkAction: (action: 'confirm' | 'decline' | 'delete') => void;
-  showPastAppointments: boolean;
-  onToggleShowPast: () => void;
 }
 
 const AppointmentsHeader = ({
@@ -321,8 +371,6 @@ const AppointmentsHeader = ({
   onViewModeChange,
   selectedCount,
   onBulkAction,
-  showPastAppointments,
-  onToggleShowPast
 }: AppointmentsHeaderProps) => {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-6 mb-6">
@@ -347,31 +395,12 @@ const AppointmentsHeader = ({
                 {statistics.confirmed} מאושרים
               </Badge>
             )}
-            {!showPastAppointments && statistics.pastCount > 0 && (
+            {statistics.pastCount > 0 && (
               <Badge variant="secondary" className="bg-gray-100 text-gray-600">
-                {statistics.pastCount} מוסתרים
+                {statistics.pastCount} עברו
               </Badge>
             )}
           </div>
-        </div>
-
-        {/* Quick Filter Toggle */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onToggleShowPast}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${showPastAppointments
-              ? 'bg-gray-100 text-gray-900'
-              : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            title={showPastAppointments ? 'הסתר תורים שעברו' : 'הצג תורים שעברו'}
-          >
-            {showPastAppointments ? (
-              <EyeOff className="w-4 h-4" />
-            ) : (
-              <Eye className="w-4 h-4" />
-            )}
-            {showPastAppointments ? 'הסתר שעברו' : 'הצג שעברו'}
-          </button>
         </div>
       </div>
 
@@ -464,7 +493,6 @@ interface FiltersPanelProps {
   onSortChange: (sort: SortOption) => void;
   services: Service[];
   appointments: Appointment[];
-  showPastAppointments: boolean;
 }
 
 const FiltersPanel = ({
@@ -474,20 +502,11 @@ const FiltersPanel = ({
   onSortChange,
   services,
   appointments,
-  showPastAppointments
 }: FiltersPanelProps) => {
-  // Filter appointments based on showPastAppointments setting
+  // Filter appointments
   const visibleAppointments = useMemo(() => {
-    if (showPastAppointments) {
-      return appointments;
-    }
-
-    const now = new Date();
-    return appointments.filter(apt => {
-      const appointmentDateTime = new Date(`${apt.date}T${apt.start_time}`);
-      return appointmentDateTime >= now;
-    });
-  }, [appointments, showPastAppointments]);
+    return appointments;
+  }, [appointments]);
 
   const statusOptions = [
     { key: 'all', label: 'הכל', count: visibleAppointments.length },
@@ -686,8 +705,9 @@ const AppointmentCards = ({
   };
 
   const isAppointmentPast = (date: string, time: string) => {
-    const appointmentDateTime = new Date(`${date}T${time}`);
-    return appointmentDateTime < new Date();
+    const today = timeUtils.dateToLocalString(new Date());
+    return timeUtils.isPastDate(new Date(date)) ||
+      (date === today && timeUtils.isPastTime(time, new Date(date)));
   };
 
   return (
@@ -962,7 +982,7 @@ const AppointmentTableRow = ({
   const appointmentDateTime = new Date(`${appointment.date}T${appointment.start_time}`);
   const now = new Date();
   const isPast = appointmentDateTime < now;
-  const isToday = appointment.date === now.toISOString().split('T')[0];
+  const isToday = appointment.date === timeUtils.dateToLocalString(new Date());
   const isEditable = isAppointmentEditable({ date: appointment.date, time: appointment.start_time });
 
   const getStatusColor = (status: string) => {
@@ -1124,12 +1144,11 @@ const AppointmentTableRow = ({
 interface EmptyStateProps {
   searchQuery: string;
   filterStatus: FilterStatus;
-  showPastAppointments: boolean;
   onClearFilters: () => void;
 }
 
-const EmptyState = ({ searchQuery, filterStatus, showPastAppointments, onClearFilters }: EmptyStateProps) => {
-  const hasFilters = searchQuery || filterStatus !== 'all' || showPastAppointments;
+const EmptyState = ({ searchQuery, filterStatus, onClearFilters }: EmptyStateProps) => {
+  const hasFilters = searchQuery || filterStatus !== 'all';
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">

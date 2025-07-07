@@ -6,7 +6,7 @@ import type { Business, Service, Appointment, Availability } from '@/lib/types';
  * מרכז את כל ה-API calls במקום אחד ומספק interface נקי
  */
 export class BusinessAPI {
-  constructor(private businessId: string) {}
+  constructor(private businessId: string) { }
 
   /**
    * טעינת פרטי העסק
@@ -37,21 +37,38 @@ export class BusinessAPI {
    * טעינת תורים עם פילטרים אופציונליים
    */
   async fetchAppointments(filters?: {
-    date?: string;
-    status?: string;
+    start_date?: string;
+    end_date?: string;
+    page?: number;
     limit?: number;
-    offset?: number;
-  }): Promise<Appointment[]> {
+    include_past?: boolean;
+    status?: string;
+  }): Promise<{
+    appointments: Appointment[];
+    pagination: {
+      current_page: number;
+      limit: number;
+      total_count: number;
+      total_pages: number;
+      has_more: boolean;
+    };
+    date_range: {
+      start?: string;
+      end?: string;
+      include_past?: boolean;
+    };
+  }> {
     const params = new URLSearchParams();
-    if (filters?.date) params.set('date', filters.date);
-    if (filters?.status) params.set('status', filters.status);
+    if (filters?.start_date) params.set('start_date', filters.start_date);
+    if (filters?.end_date) params.set('end_date', filters.end_date);
+    if (filters?.page) params.set('page', filters.page.toString());
     if (filters?.limit) params.set('limit', filters.limit.toString());
-    if (filters?.offset) params.set('offset', filters.offset.toString());
+    if (filters?.include_past) params.set('include_past', filters.include_past.toString());
+    if (filters?.status) params.set('status', filters.status);
 
-    const url = `/api/businesses/${this.businessId}/appointments${
-      params.toString() ? '?' + params.toString() : ''
-    }`;
-    
+    const url = `/api/businesses/${this.businessId}/appointments${params.toString() ? '?' + params.toString() : ''
+      }`;
+
     const response = await fetch(url);
     if (!response.ok) {
       throw new APIError('שגיאה בטעינת תורים');
@@ -74,7 +91,7 @@ export class BusinessAPI {
    * עדכון סטטוס תור
    */
   async updateAppointmentStatus(
-    appointmentId: string, 
+    appointmentId: string,
     status: 'confirmed' | 'declined' | 'cancelled'
   ): Promise<Appointment> {
     const response = await fetch(`/api/appointments/${appointmentId}/status`, {

@@ -1,6 +1,7 @@
 // src/components/dashboard/PremiumContent.tsx
 'use client';
 
+import { useState } from 'react';
 import { 
   Crown, 
   Zap, 
@@ -17,11 +18,14 @@ import {
   FileText,
   CheckCircle,
   Clock,
-  Settings
+  Settings,
+  BarChart3
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { AdvancedAnalytics } from './AdvancedAnalytics';
+import type { Appointment, Service, Business } from '@/lib/types';
 
 // ===================================
 // 🎯 Types
@@ -35,6 +39,10 @@ interface PremiumContentProps {
     subscription_tier: string;
   } | null;
   upgradeSubscription: (tier: 'premium' | 'business') => void;
+  businessId?: string;
+  appointments?: Appointment[];
+  services?: Service[];
+  business?: Business;
 }
 
 // ===================================
@@ -44,7 +52,11 @@ interface PremiumContentProps {
 export const PremiumContent = ({ 
   subscriptionTier, 
   limits, 
-  upgradeSubscription 
+  upgradeSubscription,
+  businessId,
+  appointments = [],
+  services = [],
+  business
 }: PremiumContentProps) => {
   
   // בדיקה אם המשתמש פרימיום
@@ -67,6 +79,10 @@ export const PremiumContent = ({
           subscriptionTier={subscriptionTier}
           limits={limits}
           upgradeSubscription={upgradeSubscription}
+          businessId={businessId}
+          appointments={appointments}
+          services={services}
+          business={business}
         />
       ) : (
         <UpgradeContent upgradeSubscription={upgradeSubscription} />
@@ -85,16 +101,26 @@ interface PremiumFeaturesContentProps {
     appointments_used: number;
     appointments_limit: number;
     subscription_tier: string;
-  }; // כאן זה כבר לא null כי בדקנו קודם
+  };
   upgradeSubscription: (tier: 'premium' | 'business') => void;
+  businessId?: string;
+  appointments?: Appointment[];
+  services?: Service[];
+  business?: Business;
 }
 
 const PremiumFeaturesContent = ({ 
   subscriptionTier, 
   limits, 
-  upgradeSubscription 
+  upgradeSubscription,
+  businessId,
+  appointments = [],
+  services = [],
+  business
 }: PremiumFeaturesContentProps) => {
   
+  const [activeView, setActiveView] = useState<'overview' | 'analytics'>('overview');
+
   const getSubscriptionIcon = (tier: string) => {
     switch(tier) {
       case 'premium': return <Crown className="w-8 h-8 text-amber-500" />;
@@ -117,6 +143,31 @@ const PremiumFeaturesContent = ({
       case 'business': return 'from-blue-500 to-indigo-600';
       default: return 'from-gray-400 to-gray-500';
     }
+  };
+
+  // ===================================
+  // 🎯 Quick Actions Handlers
+  // ===================================
+  
+  const handleSMSSettings = () => {
+    console.log('Opening SMS settings modal');
+    alert('הגדרות SMS יפתחו בקרוב...');
+  };
+
+  const handleReports = () => {
+    console.log('Opening reports view');
+    alert('דוחות יפתחו בקרוב...');
+  };
+
+  const handleSettings = () => {
+    console.log('Opening settings modal');
+    alert('הגדרות אישיות יפתחו בקרוב...');
+  };
+
+  const handleSupport = () => {
+    const supportMessage = encodeURIComponent('שלום, אני צריך עזרה עם המערכת');
+    const whatsappUrl = `https://wa.me/972501234567?text=${supportMessage}`;
+    window.open(whatsappUrl, '_blank');
   };
 
   // פיצ'רים זמינים לפי רמת מנוי
@@ -144,7 +195,7 @@ const PremiumFeaturesContent = ({
     : availableFeatures.premium;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-6xl mx-auto space-y-8">
       
       {/* כותרת עם סטטוס מנוי */}
       <div className="text-center">
@@ -161,154 +212,258 @@ const PremiumFeaturesContent = ({
         </p>
       </div>
 
-      {/* סטטיסטיקות מנוי */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardContent className="p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-green-100 rounded-full flex items-center justify-center">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
-            <h3 className="font-semibold text-gray-900 mb-1">תורים בחודש</h3>
-            <p className="text-2xl font-bold text-green-600">
-              {limits.appointments_used}/{limits.appointments_limit}
-            </p>
-            <p className="text-sm text-gray-500">
-              נותרו {limits.appointments_limit - limits.appointments_used}
-            </p>
-          </CardContent>
-        </Card>
+      {/* Navigation Tabs - רק למשתמשי Business */}
+      {subscriptionTier === 'business' && (
+        <div className="flex justify-center">
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setActiveView('overview')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                activeView === 'overview'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Star className="w-4 h-4" />
+                סקירה כללית
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveView('analytics')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                activeView === 'analytics'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" />
+                אנליטיקה מתקדמת
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
 
-        <Card>
-          <CardContent className="p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 rounded-full flex items-center justify-center">
-              <TrendingUp className="w-6 h-6 text-blue-600" />
-            </div>
-            <h3 className="font-semibold text-gray-900 mb-1">שיעור אישורים</h3>
-            <p className="text-2xl font-bold text-blue-600">87%</p>
-            <p className="text-sm text-gray-500">מהבקשות מאושרות</p>
-          </CardContent>
-        </Card>
+      {/* Content based on active view */}
+      {activeView === 'analytics' && subscriptionTier === 'business' && businessId && business ? (
+        <AdvancedAnalytics
+          businessId={businessId}
+          appointments={appointments}
+          services={services}
+          business={business}
+        />
+      ) : (
+        <>
+          {/* סטטיסטיקות מנוי */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card>
+              <CardContent className="p-6 text-center">
+                <div className="w-12 h-12 mx-auto mb-3 bg-green-100 rounded-full flex items-center justify-center">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+                <h3 className="font-semibold text-gray-900 mb-1">תורים בחודש</h3>
+                <p className="text-2xl font-bold text-green-600">
+                  {limits.appointments_used}/{limits.appointments_limit}
+                </p>
+                <p className="text-sm text-gray-500">
+                  נותרו {limits.appointments_limit - limits.appointments_used}
+                </p>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardContent className="p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 rounded-full flex items-center justify-center">
-              <Clock className="w-6 h-6 text-purple-600" />
-            </div>
-            <h3 className="font-semibold text-gray-900 mb-1">זמן מענה ממוצע</h3>
-            <p className="text-2xl font-bold text-purple-600">24 דק'</p>
-            <p className="text-sm text-gray-500">לאישור בקשות</p>
-          </CardContent>
-        </Card>
-      </div>
+            <Card>
+              <CardContent className="p-6 text-center">
+                <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 rounded-full flex items-center justify-center">
+                  <TrendingUp className="w-6 h-6 text-blue-600" />
+                </div>
+                <h3 className="font-semibold text-gray-900 mb-1">שיעור אישורים</h3>
+                <p className="text-2xl font-bold text-blue-600">87%</p>
+                <p className="text-sm text-gray-500">מהבקשות מאושרות</p>
+              </CardContent>
+            </Card>
 
-      {/* רשימת פיצ'רים זמינים */}
-      <div>
-        <h3 className="text-xl font-bold text-gray-900 mb-6">הפיצ'רים שלך</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {currentFeatures.map((feature, index) => (
-            <Card key={index} className={`
-              relative transition-all duration-200 
-              ${feature.status === 'active' ? 'shadow-md hover:shadow-lg' : 'opacity-60'}
-            `}>
-              <CardContent className="p-6">
-                <div className="flex items-start gap-4">
-                  <div className={`
-                    w-12 h-12 rounded-lg flex items-center justify-center
-                    ${feature.status === 'active' 
-                      ? 'bg-green-100 text-green-600' 
-                      : 'bg-gray-100 text-gray-400'
-                    }
-                  `}>
-                    <feature.icon className="w-6 h-6" />
-                  </div>
-                  
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <h4 className="font-semibold text-gray-900">{feature.title}</h4>
+            <Card>
+              <CardContent className="p-6 text-center">
+                <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 rounded-full flex items-center justify-center">
+                  <Clock className="w-6 h-6 text-purple-600" />
+                </div>
+                <h3 className="font-semibold text-gray-900 mb-1">זמן מענה ממוצע</h3>
+                <p className="text-2xl font-bold text-purple-600">24 דק'</p>
+                <p className="text-sm text-gray-500">לאישור בקשות</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* רשימת פיצ'רים זמינים */}
+          <div>
+            <h3 className="text-xl font-bold text-gray-900 mb-6">הפיצ'רים שלך</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {currentFeatures.map((feature, index) => (
+                <Card key={index} className={`
+                  relative transition-all duration-200 
+                  ${feature.status === 'active' ? 'shadow-md hover:shadow-lg' : 'opacity-60'}
+                `}>
+                  <CardContent className="p-6">
+                    <div className="flex items-start gap-4">
+                      <div className={`
+                        w-12 h-12 rounded-lg flex items-center justify-center
+                        ${feature.status === 'active' 
+                          ? 'bg-green-100 text-green-600' 
+                          : 'bg-gray-100 text-gray-400'
+                        }
+                      `}>
+                        <feature.icon className="w-6 h-6" />
+                      </div>
+                      
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h4 className="font-semibold text-gray-900">{feature.title}</h4>
+                          {feature.status === 'active' && (
+                            <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
+                              פעיל
+                            </Badge>
+                          )}
+                          {feature.status === 'coming_soon' && (
+                            <Badge variant="outline" className="text-xs">
+                              בקרוב
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600">{feature.desc}</p>
+                      </div>
+                      
                       {feature.status === 'active' && (
-                        <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
-                          פעיל
-                        </Badge>
-                      )}
-                      {feature.status === 'coming_soon' && (
-                        <Badge variant="outline" className="text-xs">
-                          בקרוב
-                        </Badge>
+                        <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
                       )}
                     </div>
-                    <p className="text-sm text-gray-600">{feature.desc}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          {/* קישורים מהירים לפיצ'רים */}
+          <div className="bg-gray-50 rounded-xl p-6">
+            <h4 className="font-semibold text-gray-900 mb-4">פעולות מהירות</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Button 
+                variant="outline" 
+                className="h-auto p-4 flex-col gap-2 hover:bg-blue-50 hover:border-blue-200 transition-colors"
+                onClick={handleSMSSettings}
+              >
+                <MessageSquare className="w-5 h-5 text-blue-600" />
+                <span className="text-sm font-medium">הגדר SMS</span>
+                <span className="text-xs text-gray-500">תזכורות ללקוחות</span>
+              </Button>
+              
+              <Button 
+                variant="outline" 
+                className="h-auto p-4 flex-col gap-2 hover:bg-green-50 hover:border-green-200 transition-colors"
+                onClick={handleReports}
+              >
+                <BarChart className="w-5 h-5 text-green-600" />
+                <span className="text-sm font-medium">דוחות</span>
+                <span className="text-xs text-gray-500">סטטיסטיקות</span>
+              </Button>
+              
+              <Button 
+                variant="outline" 
+                className="h-auto p-4 flex-col gap-2 hover:bg-purple-50 hover:border-purple-200 transition-colors"
+                onClick={handleSettings}
+              >
+                <Settings className="w-5 h-5 text-purple-600" />
+                <span className="text-sm font-medium">הגדרות</span>
+                <span className="text-xs text-gray-500">העדפות אישיות</span>
+              </Button>
+              
+              <Button 
+                variant="outline" 
+                className="h-auto p-4 flex-col gap-2 hover:bg-orange-50 hover:border-orange-200 transition-colors"
+                onClick={handleSupport}
+              >
+                <Headphones className="w-5 h-5 text-orange-600" />
+                <span className="text-sm font-medium">תמיכה</span>
+                <span className="text-xs text-gray-500">עזרה מיידית</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* אנליטיקה מתקדמת - תזכורת לפרימיום */}
+          {subscriptionTier === 'premium' && (
+            <Card className="border-2 border-gradient-to-r from-purple-200 to-blue-200 bg-gradient-to-r from-purple-50 to-blue-50">
+              <CardContent className="p-6">
+                <div className="text-center">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
+                    <BarChart3 className="w-8 h-8 text-white" />
                   </div>
-                  
-                  {feature.status === 'active' && (
-                    <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  )}
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">
+                    אנליטיקה מתקדמת זמינה במנוי עסקי
+                  </h3>
+                  <p className="text-gray-600 mb-4">
+                    קבל תובנות מעמיקות על העסק שלך: תחזיות, ניתוח לקוחות, המלצות לשיפור ועוד
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2 mb-6">
+                    {[
+                      'תחזיות AI',
+                      'ניתוח רווחיות',
+                      'מעקב לקוחות',
+                      'אופטימיזציה',
+                      'דוחות מתקדמים'
+                    ].map((feature, index) => (
+                      <Badge key={index} variant="secondary" className="bg-white/80">
+                        {feature}
+                      </Badge>
+                    ))}
+                  </div>
+                  <Button 
+                    onClick={() => upgradeSubscription('business')}
+                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white px-6 py-3"
+                  >
+                    שדרג למנוי עסקי - ₪99/חודש
+                  </Button>
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      </div>
+          )}
 
-      {/* קישורים מהירים לפיצ'רים */}
-      <div className="bg-gray-50 rounded-xl p-6">
-        <h4 className="font-semibold text-gray-900 mb-4">פעולות מהירות</h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Button variant="outline" className="h-auto p-4 flex-col gap-2">
-            <MessageSquare className="w-5 h-5" />
-            <span className="text-sm">הגדר SMS</span>
-          </Button>
-          
-          <Button variant="outline" className="h-auto p-4 flex-col gap-2">
-            <BarChart className="w-5 h-5" />
-            <span className="text-sm">דוחות</span>
-          </Button>
-          
-          <Button variant="outline" className="h-auto p-4 flex-col gap-2">
-            <Settings className="w-5 h-5" />
-            <span className="text-sm">הגדרות</span>
-          </Button>
-          
-          <Button variant="outline" className="h-auto p-4 flex-col gap-2">
-            <Headphones className="w-5 h-5" />
-            <span className="text-sm">תמיכה</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* שדרוג למנוי גבוה יותר */}
-      {subscriptionTier === 'premium' && (
-        <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-blue-600" />
-                  שדרג למנוי עסקי
-                </h3>
-                <p className="text-gray-600 mb-3">
-                  קבל גישה לעסקים מרובים, אנליטיקה מתקדמת ותמיכה VIP
-                </p>
-                <ul className="text-sm text-gray-600 space-y-1">
-                  <li>✓ עסקים ללא הגבלה</li>
-                  <li>✓ 1000 תורים בחודש</li>
-                  <li>✓ דוחות מתקדמים</li>
-                  <li>✓ תמיכה VIP</li>
-                </ul>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600 mb-1">₪49.90</div>
-                <div className="text-sm text-gray-500 mb-4">לחודש</div>
-                <Button 
-                  onClick={() => upgradeSubscription('business')}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  שדרג עכשיו
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          {/* שדרוג למנוי גבוה יותר - לפרימיום */}
+          {subscriptionTier === 'premium' && (
+            <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
+                      <Zap className="w-5 h-5 text-blue-600" />
+                      שדרג למנוי עסקי
+                    </h3>
+                    <p className="text-gray-600 mb-3">
+                      קבל גישה לעסקים מרובים, אנליטיקה מתקדמת ותמיכה VIP
+                    </p>
+                    <ul className="text-sm text-gray-600 space-y-1">
+                      <li>✓ עסקים ללא הגבלה</li>
+                      <li>✓ 1000 תורים בחודש</li>
+                      <li>✓ דוחות מתקדמים</li>
+                      <li>✓ תמיכה VIP</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600 mb-1">₪99</div>
+                    <div className="text-sm text-gray-500 mb-4">לחודש</div>
+                    <Button 
+                      onClick={() => upgradeSubscription('business')}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      שדרג עכשיו
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       {/* הערות כלליות */}
@@ -367,7 +522,7 @@ const UpgradeContent = ({ upgradeSubscription }: UpgradeContentProps) => {
 
       {/* מחירים */}
       <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl p-8 mb-6">
-        <div className="text-4xl font-bold mb-2">₪19.90</div>
+        <div className="text-4xl font-bold mb-2">₪29</div>
         <div className="text-amber-100 mb-4">לחודש</div>
         <Button 
           onClick={() => upgradeSubscription('premium')}

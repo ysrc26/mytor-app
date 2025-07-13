@@ -13,13 +13,10 @@ import { useSubscription } from '@/hooks/useSubscription';
 // UI Components
 import { Header } from '@/components/dashboard/Header';
 import { SideNavigation } from '@/components/dashboard/SideNavigation';
-import { StatsCards } from '@/components/dashboard/StatsCards';
 import { TabNavigation, type TabType } from '@/components/dashboard/TabNavigation';
 import { PendingAppointments } from '@/components/dashboard/PendingAppointments';
 import { CalendarView } from '@/components/dashboard/CalendarView';
 import { AppointmentsList } from '@/components/dashboard/AppointmentsList';
-import { DateRangePicker } from '@/components/dashboard/DateRangePicker';
-import { AppointmentsControls } from '@/components/dashboard/AppointmentsControls';
 import { PremiumContent } from '@/components/dashboard/PremiumContent';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,14 +30,13 @@ import { UnavailableDatesModal } from '@/components/dashboard/modals/Unavailable
 import { SettingsModal } from '@/components/dashboard/modals/SettingsModal';
 import { CreateAppointmentModal } from '@/components/dashboard/modals/CreateAppointmentModal';
 import { EditAppointmentModal } from '@/components/dashboard/modals/EditAppointmentModal';
-import { DeleteConfirmationModal } from '@/components/dashboard/modals/DeleteConfirmationModal';
 
 // Loading & Error States
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 
 // Types
-import type { Appointment, Service, Availability, Business } from '@/lib/types';
+import type { Appointment, Service } from '@/lib/types';
 import {
   Crown,
   Zap,
@@ -475,6 +471,10 @@ export default function BusinessDashboard() {
                   subscriptionTier={limits?.subscription_tier || 'free'}
                   limits={limits}
                   upgradeSubscription={upgradeSubscription}
+                  businessId={businessId}
+                  appointments={appointments}
+                  services={services}
+                  business={business}
                 />
               )}
             </div>

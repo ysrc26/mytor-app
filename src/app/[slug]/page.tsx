@@ -27,7 +27,7 @@ import {
   MapPin,
   Shield
 } from 'lucide-react';
-
+import BusinessBranding from '@/components/business/BusinessBranding';
 import { Business, Service, Availability } from '@/lib/types';
 import { supabasePublic } from '@/lib/supabase-public';
 
@@ -107,9 +107,9 @@ export default function BusinessPage() {
           .from('public_unavailable_dates')
           .select('date')
           .eq('business_id', data.business.id);
-        
+
         if (blockedDates) {
-          console.log('🚫 Blocked dates loaded:',blockedDates);
+          console.log('🚫 Blocked dates loaded:', blockedDates);
         }
 
         data.unavailableDates = blockedDates?.map(d => d.date) || [];
@@ -928,6 +928,8 @@ export default function BusinessPage() {
           </Card>
         )}
       </div>
+      {/* MyTor Branding - מוצג רק למשתמשים חינמיים */}
+      <BusinessBranding businessName={business?.name} />
     </div>
   );
 }

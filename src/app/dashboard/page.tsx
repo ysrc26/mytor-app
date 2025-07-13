@@ -1,98 +1,48 @@
-// src/app/dashboard/page.tsx
+// ===================================
+// 📊 src/app/dashboard/page.tsx (עדכון עם מערכת מנויים)
+// ===================================
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase-client';
 import { useRouter } from 'next/navigation';
-import { User, Business } from '@/lib/types';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import {
-  Calendar,
-  Plus,
-  Building2,
-  Users,
-  BarChart,
-  Crown,
-  LogOut,
-  ExternalLink,
-  Settings,
-  Trash2,
-  Edit,
-  CheckCircle,
-  AlertCircle,
-  Loader2
-} from 'lucide-react';
+import { Loader2, Plus, Building2, Calendar, Users, Crown, Settings, ExternalLink, AlertTriangle } from 'lucide-react';
+import SubscriptionStatus from '@/components/subscription/SubscriptionStatus';
+import UpgradeButton from '@/components/subscription/UpgradeButton';
+import LimitReachedModal from '@/components/subscription/LimitReachedModal';
+import { useSubscription } from '@/hooks/useSubscription';
+import { Business } from '@/lib/types';
 
-export default function MainDashboard() {
-  const [user, setUser] = useState<User | null>(null);
+export default function DashboardPage() {
+  const router = useRouter();
+  const { subscription, isPremium, checkLimit } = useSubscription();
+  
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  // טופס יצירת עסק חדש
+  const [creating, setCreating] = useState(false);
+  const [limitModalOpen, setLimitModalOpen] = useState(false);
+  const [limitType, setLimitType] = useState<'businesses' | 'appointments' | 'sms'>('businesses');
+  
   const [newBusiness, setNewBusiness] = useState({
     name: '',
     description: '',
     terms: ''
   });
 
-  const router = useRouter();
-  const supabase = createClient();
+  // בדיקה האם המשתמש יכול ליצור עסק נוסף
+  const canCreateMore = businesses.length < (isPremium ? 
+    (subscription?.subscription_tier === 'business' ? Infinity : 3) : 1);
 
   useEffect(() => {
-    checkAuth();
+    fetchBusinesses();
   }, []);
-
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) {
-      router.push('/auth/login');
-      return;
-    }
-
-    await Promise.all([
-      fetchUserData(),
-      fetchBusinesses()
-    ]);
-
-    setLoading(false);
-  };
-
-  const fetchUserData = async () => {
-    try {
-      const response = await fetch('/api/users/me');
-      if (response.ok) {
-        const data = await response.json();
-
-        // הוספת הלוגיקה לתמונת גוגל
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        let profilePicUrl = data.user.profile_pic || '';
-
-        // אם אין תמונה מותאמת אישית, נסה לקבל מGoogle
-        if (!profilePicUrl && authUser?.user_metadata?.avatar_url) {
-          profilePicUrl = authUser.user_metadata.avatar_url;
-        }
-
-        setUser({
-          ...data.user,
-          profile_pic: profilePicUrl
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching user data:', error);
-      setError('שגיאה בטעינת נתוני המשתמש');
-    }
-  };
 
   const fetchBusinesses = async () => {
     try {
@@ -103,18 +53,21 @@ export default function MainDashboard() {
       }
     } catch (error) {
       console.error('Error fetching businesses:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
   const createBusiness = async () => {
-    if (!newBusiness.name.trim()) {
-      setError('יש למלא שם עסק');
+    // בדיקת מגבלה לפני יצירה
+    const limitCheck = await checkLimit('create_business');
+    if (!limitCheck.allowed) {
+      setLimitType('businesses');
+      setLimitModalOpen(true);
       return;
     }
 
     setCreating(true);
-    setError(null);
-
     try {
       const response = await fetch('/api/businesses', {
         method: 'POST',
@@ -122,366 +75,395 @@ export default function MainDashboard() {
         body: JSON.stringify(newBusiness)
       });
 
-      if (!response.ok) {
+      if (response.ok) {
+        const business = await response.json();
+        setBusinesses([...businesses, business]);
+        setNewBusiness({ name: '', description: '', terms: '' });
+        setDialogOpen(false);
+      } else {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'שגיאה ביצירת העסק');
+        if (errorData.limit_reached) {
+          setLimitType('businesses');
+          setLimitModalOpen(true);
+        }
       }
-
-      setSuccess('עסק נוצר בהצלחה!');
-      setDialogOpen(false);
-      setNewBusiness({ name: '', description: '', terms: '' });
-      await fetchBusinesses();
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'שגיאה ביצירת העסק');
+    } catch (error) {
+      console.error('Error creating business:', error);
     } finally {
       setCreating(false);
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/');
+  const handleUpgrade = async () => {
+    setLimitModalOpen(false);
+    
+    const response = await fetch('/api/subscriptions/create-checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: 'premium' })
+    });
+
+    const data = await response.json();
+    
+    if (response.ok && data.url) {
+      window.location.href = data.url;
+    }
   };
-
-  // הסתרת הודעות אחרי זמן
-  useEffect(() => {
-    if (success) {
-      const timer = setTimeout(() => setSuccess(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success]);
-
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center" style={{ fontFamily: "'Heebo', 'Assistant', sans-serif", direction: 'rtl' }}>
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">טוען את הדשבורד...</p>
-        </div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin" />
       </div>
     );
   }
 
-  if (!user) return null;
-
-  const isPremium = false; // TODO: בדיקת סטטוס premium
-  const canCreateMore = isPremium || businesses.length === 0;
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" style={{ fontFamily: "'Heebo', 'Assistant', sans-serif", direction: 'rtl' }}>
-      {/* Header */}
-      <header className="bg-white/90 backdrop-blur-xl border-b border-gray-200/50 shadow-lg shadow-black/5">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30">
-                <Calendar className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-black bg-gradient-to-l from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent">
-                  MyTor
-                </h1>
-                <p className="text-sm text-gray-500 font-medium">ניהול עסקים</p>
-              </div>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="container mx-auto px-4 py-8">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              שלום! 👋
+            </h1>
+            <p className="text-gray-600">נהל את כל העסקים שלך במקום אחד</p>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            {isPremium && (
+              <Badge className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white">
+                <Crown className="w-4 h-4 ml-1" />
+                {subscription?.subscription_tier === 'business' ? 'עסקי' : 'פרימיום'}
+              </Badge>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => router.push('/auth/logout')}
+            >
+              התנתק
+            </Button>
+          </div>
+        </div>
 
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => router.push('/dashboard/profile')}
-                  className="flex items-center gap-3 hover:bg-gray-50 rounded-xl p-2 transition-colors"
-                >
-                  {user.profile_pic ? (
-                    <img
-                      src={user.profile_pic}
-                      alt={user.full_name}
-                      className="w-10 h-10 rounded-full object-cover border-2 border-blue-200"
-                    />
-                  ) : (
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white text-sm font-bold">
-                      {user.full_name.charAt(0)}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Main Content */}
+          <div className="lg:col-span-2 space-y-8">
+            
+            {/* Stats Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card className="bg-white/90 backdrop-blur-sm border-0 shadow-lg">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">עסקים פעילים</p>
+                      <p className="text-3xl font-bold text-blue-600">
+                        {businesses.filter(b => b.is_active).length}
+                      </p>
                     </div>
-                  )}
-                  <div className="text-right">
-                    <p className="font-semibold text-gray-900">{user.full_name}</p>
-                    <p className="text-xs text-gray-500">{user.email}</p>
+                    <Building2 className="w-8 h-8 text-blue-600" />
                   </div>
-                </button>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200"
-                title="התנתק"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white/90 backdrop-blur-sm border-0 shadow-lg">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">תורים החודש</p>
+                      <p className="text-3xl font-bold text-green-600">
+                        {subscription?.monthly_appointments_used || 0}
+                      </p>
+                    </div>
+                    <Calendar className="w-8 h-8 text-green-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white/90 backdrop-blur-sm border-0 shadow-lg">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">מגבלה חודשית</p>
+                      <p className="text-3xl font-bold text-purple-600">
+                        {subscription?.monthly_limit || 10}
+                      </p>
+                    </div>
+                    <Users className="w-8 h-8 text-purple-600" />
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </div>
-        </div>
-      </header>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        {/* הודעות */}
-        {error && (
-          <Alert className="mb-6 border-red-200 bg-red-50">
-            <AlertCircle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">{error}</AlertDescription>
-          </Alert>
-        )}
+            {/* Usage Warning */}
+            {subscription && subscription.monthly_appointments_used >= subscription.monthly_limit * 0.8 && (
+              <Card className="border-orange-200 bg-orange-50">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="w-5 h-5 text-orange-600" />
+                    <div className="flex-1">
+                      <p className="font-medium text-orange-900">
+                        אתה מתקרב למגבלת התורים החודשית
+                      </p>
+                      <p className="text-sm text-orange-700">
+                        השתמשת ב-{subscription.monthly_appointments_used} מתוך {subscription.monthly_limit} תורים
+                      </p>
+                    </div>
+                    {!isPremium && (
+                      <UpgradeButton size="sm" variant="outline">
+                        שדרג עכשיו
+                      </UpgradeButton>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-        {success && (
-          <Alert className="mb-6 border-green-200 bg-green-50">
-            <CheckCircle className="h-4 w-4 text-green-600" />
-            <AlertDescription className="text-green-800">{success}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">שלום {user.full_name}! 👋</h2>
-          <p className="text-gray-600">נהל את כל העסקים שלך במקום אחד</p>
-        </div>
-
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white/90 backdrop-blur-sm rounded-3xl p-6 border border-white/50 shadow-xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 font-medium">עסקים פעילים</p>
-                <p className="text-3xl font-bold text-blue-600">{businesses.filter(b => b.is_active).length}</p>
-              </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center">
-                <Building2 className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white/90 backdrop-blur-sm rounded-3xl p-6 border border-white/50 shadow-xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 font-medium">סה"כ תורים</p>
-                <p className="text-3xl font-bold text-green-600">0</p>
-              </div>
-              <div className="w-12 h-12 bg-green-100 rounded-2xl flex items-center justify-center">
-                <Calendar className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white/90 backdrop-blur-sm rounded-3xl p-6 border border-white/50 shadow-xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 font-medium">לקוחות</p>
-                <p className="text-3xl font-bold text-purple-600">0</p>
-              </div>
-              <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center">
-                <Users className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white/90 backdrop-blur-sm rounded-3xl p-6 border border-white/50 shadow-xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 font-medium">חבילה</p>
-                <p className="text-xl font-bold text-gray-600">{isPremium ? 'פרימיום' : 'חינם'}</p>
-              </div>
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isPremium ? 'bg-yellow-100' : 'bg-gray-100'}`}>
-                <Crown className={`w-6 h-6 ${isPremium ? 'text-yellow-600' : 'text-gray-600'}`} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* מערכת העסקים */}
-        <Card className="shadow-xl border-0 bg-white/90 backdrop-blur-sm">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle className="text-2xl font-bold text-gray-900">העסקים שלי</CardTitle>
-
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogTrigger asChild>
+            {/* Businesses List */}
+            <Card className="shadow-lg border-0 bg-white/90 backdrop-blur-sm">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Building2 className="w-5 h-5" />
+                    העסקים שלי
+                  </CardTitle>
+                  
                   <Button
-                    disabled={!canCreateMore}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={() => {
+                      if (canCreateMore) {
+                        setDialogOpen(true);
+                      } else {
+                        setLimitType('businesses');
+                        setLimitModalOpen(true);
+                      }
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    disabled={!canCreateMore && !isPremium}
                   >
                     <Plus className="w-4 h-4 ml-2" />
                     עסק חדש
                   </Button>
-                </DialogTrigger>
+                </div>
 
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>יצירת עסק חדש</DialogTitle>
-                    <DialogDescription>
-                      הוסף עסק חדש למערכת ותתחיל לקבל תורים
-                    </DialogDescription>
-                  </DialogHeader>
+                {!canCreateMore && !isPremium && (
+                  <p className="text-sm text-gray-500">
+                    משתמשים חינמיים יכולים לנהל עסק אחד בלבד.
+                    <UpgradeButton variant="ghost" size="sm" className="p-0 h-auto font-medium text-blue-600 hover:text-blue-700 mr-1">
+                      שדרג לפרימיום
+                    </UpgradeButton>
+                    לעסקים נוספים.
+                  </p>
+                )}
+              </CardHeader>
 
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="business-name">שם העסק *</Label>
-                      <Input
-                        id="business-name"
-                        value={newBusiness.name}
-                        onChange={(e) => setNewBusiness({
-                          ...newBusiness,
-                          name: e.target.value
-                        })}
-                        placeholder="שם העסק שלך"
-                        required
-                      />
-                    </div>
+              <CardContent>
+                {businesses.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                      עדיין אין לך עסקים
+                    </h3>
+                    <p className="text-gray-600 mb-6">
+                      צור את העסק הראשון שלך והתחל לקבל תורים
+                    </p>
+                    <Button 
+                      onClick={() => setDialogOpen(true)}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Plus className="w-4 h-4 ml-2" />
+                      צור עסק ראשון
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {businesses.map((business) => (
+                      <div key={business.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-semibold text-lg">{business.name}</h4>
+                          <div className={`w-3 h-3 rounded-full ${business.is_active ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                        </div>
 
-                    <div>
-                      <Label htmlFor="business-description">תיאור העסק</Label>
-                      <Textarea
-                        id="business-description"
-                        value={newBusiness.description}
-                        onChange={(e) => setNewBusiness({
-                          ...newBusiness,
-                          description: e.target.value
-                        })}
-                        placeholder="ספר על העסק שלך, השירותים שאתה מציע..."
-                        rows={3}
-                      />
-                    </div>
+                        {business.description && (
+                          <p className="text-gray-600 text-sm mb-4 line-clamp-2">{business.description}</p>
+                        )}
 
-                    <div>
-                      <Label htmlFor="business-terms">תנאי שירות</Label>
-                      <Textarea
-                        id="business-terms"
-                        value={newBusiness.terms}
-                        onChange={(e) => setNewBusiness({
-                          ...newBusiness,
-                          terms: e.target.value
-                        })}
-                        placeholder="תנאי ביטול, מדיניות תשלום וכו'"
-                        rows={3}
-                      />
-                    </div>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => router.push(`/dashboard/business/${business.id}`)}
+                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                          >
+                            <Settings className="w-4 h-4 ml-1" />
+                            נהל
+                          </Button>
+                          <Button
+                            onClick={() => window.open(`/${business.slug}`, '_blank')}
+                            variant="outline"
+                            className="text-sm"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
-                    <div className="flex gap-3 pt-4">
-                      <Button
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Subscription Status */}
+            <SubscriptionStatus onUpgrade={handleUpgrade} />
+
+            {/* Upgrade CTA for Free Users */}
+            {!isPremium && (
+              <Card className="shadow-xl border-0 bg-gradient-to-br from-blue-500 to-purple-600 text-white">
+                <CardContent className="p-6">
+                  <div className="text-center">
+                    <Crown className="w-12 h-12 mx-auto mb-4 text-yellow-300" />
+                    <h3 className="text-xl font-bold mb-2">🚀 שדרג לפרימיום</h3>
+                    <p className="text-blue-100 mb-4 text-sm">
+                      עסקים מרובים, תורים ללא הגבלה, ועוד הרבה תכונות
+                    </p>
+                    <ul className="text-sm text-blue-100 space-y-1 mb-6 text-right">
+                      <li>✓ עד 3 עסקים</li>
+                      <li>✓ 100 תורים בחודש</li>
+                      <li>✓ SMS התראות</li>
+                      <li>✓ הסרת מיתוג</li>
+                      <li>✓ דוחות מתקדמים</li>
+                    </ul>
+                    <div className="space-y-2">
+                      <div className="text-2xl font-bold">₪19.90</div>
+                      <div className="text-blue-100 text-sm">לחודש</div>
+                      <UpgradeButton 
+                        className="w-full bg-white text-blue-600 hover:bg-gray-100 font-bold"
                         variant="outline"
-                        onClick={() => setDialogOpen(false)}
-                        className="flex-1"
                       >
-                        ביטול
-                      </Button>
-                      <Button
-                        onClick={createBusiness}
-                        disabled={creating}
-                        className="flex-1 bg-blue-600 hover:bg-blue-700"
-                      >
-                        {creating && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
-                        {creating ? 'יוצר...' : 'צור עסק'}
-                      </Button>
+                        שדרג עכשיו
+                      </UpgradeButton>
+                      <p className="text-xs text-blue-200">
+                        🎁 7 ימי ניסיון חינם
+                      </p>
                     </div>
                   </div>
-                </DialogContent>
-              </Dialog>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Quick Links */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">קישורים מהירים</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start"
+                  onClick={() => router.push('/pricing')}
+                >
+                  📋 תמחור ותוכניות
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start"
+                  onClick={() => router.push('/support')}
+                >
+                  💬 תמיכה ועזרה
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start"
+                  onClick={() => window.open('https://docs.mytor.app', '_blank')}
+                >
+                  📚 מדריך למשתמש
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+
+      {/* Create Business Modal */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>צור עסק חדש</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="business-name">שם העסק *</Label>
+              <Input
+                id="business-name"
+                value={newBusiness.name}
+                onChange={(e) => setNewBusiness({
+                  ...newBusiness,
+                  name: e.target.value
+                })}
+                placeholder="למשל: סלון יופי רחל"
+              />
             </div>
 
-            {!canCreateMore && (
-              <p className="text-sm text-gray-500">
-                משתמשים חינמיים יכולים לנהל עסק אחד בלבד.
-                <button className="text-blue-600 hover:text-blue-700 font-medium mr-1">
-                  שדרג לפרימיום
-                </button>
-                לעסקים נוספים.
-              </p>
-            )}
-          </CardHeader>
+            <div>
+              <Label htmlFor="business-description">תיאור העסק</Label>
+              <Textarea
+                id="business-description"
+                value={newBusiness.description}
+                onChange={(e) => setNewBusiness({
+                  ...newBusiness,
+                  description: e.target.value
+                })}
+                placeholder="תיאור קצר על העסק שלך"
+                rows={3}
+              />
+            </div>
 
-          <CardContent>
-            {businesses.length === 0 ? (
-              <div className="text-center py-12">
-                <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">אין עסקים עדיין</h3>
-                <p className="text-gray-600 mb-6">צור את העסק הראשון שלך והתחל לקבל תורים</p>
-                <Button
-                  onClick={() => setDialogOpen(true)}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  <Plus className="w-4 h-4 ml-2" />
-                  צור עסק ראשון
-                </Button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {businesses.map((business) => (
-                  <div key={business.id} className="bg-gradient-to-br from-white to-gray-50 rounded-2xl p-6 border border-gray-200 hover:shadow-lg transition-all duration-300">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="font-bold text-gray-900 text-lg mb-1">{business.name}</h3>
-                        <p className="text-sm text-gray-500">mytor.app/{business.slug}</p>
-                      </div>
-                      <div className={`w-3 h-3 rounded-full ${business.is_active ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-                    </div>
+            <div>
+              <Label htmlFor="business-terms">תנאי שירות</Label>
+              <Textarea
+                id="business-terms"
+                value={newBusiness.terms}
+                onChange={(e) => setNewBusiness({
+                  ...newBusiness,
+                  terms: e.target.value
+                })}
+                placeholder="תנאי ביטול, מדיניות תשלום וכו'"
+                rows={3}
+              />
+            </div>
 
-                    {business.description && (
-                      <p className="text-gray-600 text-sm mb-4 line-clamp-2">{business.description}</p>
-                    )}
+            <div className="flex gap-3 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setDialogOpen(false)}
+                className="flex-1"
+              >
+                ביטול
+              </Button>
+              <Button
+                onClick={createBusiness}
+                disabled={creating || !newBusiness.name}
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
+              >
+                {creating && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
+                {creating ? 'יוצר...' : 'צור עסק'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => router.push(`/dashboard/business/${business.id}`)}
-                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm"
-                      >
-                        <Settings className="w-4 h-4 ml-1" />
-                        נהל
-                      </Button>
-                      <Button
-                        onClick={() => window.open(`/${business.slug}`, '_blank')}
-                        variant="outline"
-                        className="text-sm"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* פרימיום */}
-        {!isPremium && (
-          <Card className="mt-8 shadow-xl border-0 bg-gradient-to-br from-blue-500 to-purple-600 text-white">
-            <CardContent className="p-8">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-2xl font-bold mb-2">🚀 שדרג לפרימיום</h3>
-                  <p className="text-blue-100 mb-4">עסקים מרובים, תורים ללא הגבלה, ועוד הרבה תכונות</p>
-                  <ul className="text-sm text-blue-100 space-y-1">
-                    <li>✓ עסקים ללא הגבלה</li>
-                    <li>✓ תורים ללא הגבלה</li>
-                    <li>✓ התראות SMS</li>
-                    <li>✓ אנליטיקה מתקדמת</li>
-                  </ul>
-                </div>
-                <div className="text-left">
-                  <div className="text-3xl font-bold mb-2">₪9.90</div>
-                  <div className="text-blue-100 text-sm mb-4">לחודש</div>
-                  <Button className="bg-white text-blue-600 hover:bg-gray-100 font-bold">
-                    שדרג עכשיו
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+      {/* Limit Reached Modal */}
+      <LimitReachedModal
+        isOpen={limitModalOpen}
+        onClose={() => setLimitModalOpen(false)}
+        onUpgrade={handleUpgrade}
+        limitType={limitType}
+        currentCount={subscription?.monthly_appointments_used}
+        maxCount={subscription?.monthly_limit}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { rateLimit, validateIsraeliPhone, verifyPhoneOTP, getSupabaseClient } from '@/lib/api-auth';
 import { AppointmentValidator } from '@/lib/appointment-utils';
+import { incrementAppointmentUsage } from '@/lib/subscription-utils';
 import { timeUtils } from '@/lib/time-utils';
 
 export async function POST(request: NextRequest) {
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
   try {
     // ✅ השתמש בפונקציה הקיימת עם service role לעקיפת RLS
     const supabase = await getSupabaseClient('server');
-    
+
     const body = await request.json();
 
     const {
@@ -164,6 +165,11 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('✅ Appointment created successfully:', newAppointment.id);
+
+    // אחרי יצירת התור בהצלחה, עדכן שימוש
+    if (newAppointment && business.user_id) {
+      await incrementAppointmentUsage(business.user_id);
+    }
 
     // 📧 TODO: Send notification to business owner (email/SMS)
     // await sendAppointmentNotification(business.user_id, newAppointment);

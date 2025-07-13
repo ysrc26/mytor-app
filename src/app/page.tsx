@@ -1,398 +1,382 @@
-// src/app/page.tsx
+// ===================================
+// 🏠 src/app/page.tsx (עדכון דף הבית עם תמחור)
+// ===================================
 'use client';
-import { Calendar, Check, Clock, Phone, ArrowLeft, Sparkles, Shield, Zap, Play } from 'lucide-react';
-import { useState } from 'react';
 
-export default function BeautifulHomepage() {
-  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { ArrowRight, Check, Star, Users, Calendar, MessageSquare, Crown, Zap, Building } from 'lucide-react';
+import PricingPlans from '@/components/pricing/PricingPlans';
+
+export default function HomePage() {
+  const router = useRouter();
+  const [pricingVisible, setPricingVisible] = useState(false);
+
+  const handleGetStarted = () => {
+    router.push('/auth/signup');
+  };
+
+  const handleUpgrade = async (plan: string) => {
+    if (plan === 'free') {
+      router.push('/auth/signup');
+      return;
+    }
+
+    // נסה ליצור checkout (אם לא מחובר יפנה להרשמה)
+    try {
+      const response = await fetch('/api/subscriptions/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.url) {
+        window.location.href = data.url;
+      } else {
+        router.push('/auth/signup');
+      }
+    } catch (error) {
+      router.push('/auth/signup');
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" style={{ fontFamily: "'Heebo', 'Assistant', sans-serif", direction: 'rtl' }}>
-      {/* Heebo Font Import */}
-      <style jsx>{`
-        @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap');
-      `}</style>
-
-      {/* Header - Glass morphism */}
-      <header className="fixed top-0 w-full z-50 backdrop-blur-xl bg-white/90 border-b border-gray-200/50 shadow-lg shadow-black/5">
-        <div className="max-w-7xl mx-auto px-8">
-          <div className="flex justify-between items-center py-6">
-            <div className="flex items-center gap-4">
-              <div className="relative group">
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:shadow-xl group-hover:shadow-blue-500/40 transition-all duration-300 group-hover:scale-110">
-                  <Calendar className="w-6 h-6 text-white" />
-                </div>
-                <div className="absolute -top-1 -left-1 w-4 h-4 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full border-2 border-white animate-pulse"></div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-sm border-b sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold">M</span>
               </div>
-              <div>
-                <h1 className="text-3xl font-black bg-gradient-to-l from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent">
-                  MyTor
-                </h1>
-                <p className="text-sm text-gray-500 font-medium">מערכת תורים חכמה</p>
-              </div>
+              <span className="text-xl font-bold">MyTor</span>
             </div>
-
+            
             <div className="flex items-center gap-4">
-              <button
-                onClick={() => window.location.href = '/auth/login'}
-                className="text-gray-600 hover:text-gray-900 px-6 py-3 rounded-xl font-semibold transition-all duration-200 hover:bg-gray-50"
+              <Button 
+                variant="ghost" 
+                onClick={() => setPricingVisible(!pricingVisible)}
+              >
+                תמחור
+              </Button>
+              <Button 
+                variant="ghost"
+                onClick={() => router.push('/auth/login')}
               >
                 התחברות
-              </button>
-              <button
-                onClick={() => window.location.href = '/auth/signup'}
-                className="group relative overflow-hidden bg-gradient-to-l from-blue-600 via-blue-700 to-indigo-700 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/50 transition-all duration-300 transform hover:-translate-y-1 active:scale-95"
+              </Button>
+              <Button 
+                onClick={handleGetStarted}
+                className="bg-blue-600 hover:bg-blue-700"
               >
-                <div className="absolute inset-0 bg-gradient-to-l from-blue-500 via-blue-600 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <span className="relative flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  הרשמה חינם
-                </span>
-                <div className="absolute inset-0 rounded-2xl bg-gradient-to-l from-transparent via-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-700 transform translate-x-full group-hover:translate-x-[-200%] skew-x-12"></div>
-              </button>
+                <ArrowRight className="w-4 h-4 ml-2" />
+                התחל עכשיו
+              </Button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative pt-32 pb-24 overflow-hidden">
-        {/* Animated background */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-3xl animate-pulse"></div>
-          <div className="absolute bottom-1/3 left-1/4 w-96 h-96 bg-gradient-to-br from-indigo-400/20 to-cyan-400/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-          <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-gradient-to-br from-pink-400/20 to-rose-400/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }}></div>
-        </div>
-
-        <div className="relative max-w-6xl mx-auto px-8 text-center">
-          {/* Announcement Badge */}
-          <div className="inline-flex items-center gap-3 bg-gradient-to-l from-blue-50 to-indigo-50 border border-blue-200/60 text-blue-700 px-6 py-3 rounded-full text-sm font-semibold mb-8 shadow-lg shadow-blue-100/50 hover:shadow-xl hover:shadow-blue-100/80 transition-all duration-300 cursor-pointer">
-            <div className="w-3 h-3 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full animate-pulse"></div>
-            <span>חדש! מערכת תורים מהפכנית ופשוטה</span>
-            <Sparkles className="w-4 h-4" />
-          </div>
-
-          {/* Main Headline */}
-          <h1 className="text-7xl md:text-8xl lg:text-9xl font-black mb-8 leading-tight">
-            <span className="block bg-gradient-to-l from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent hover:from-gray-800 hover:to-gray-900 transition-all duration-500">
-              תורים
-            </span>
-            <span className="block bg-gradient-to-l from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent hover:from-blue-500 hover:to-purple-500 transition-all duration-500">
-              פשוטים
-            </span>
-            <span className="block text-6xl md:text-7xl text-gray-600 font-bold">
-              לעצמאים חכמים
-            </span>
-          </h1>
-
-          {/* Subtitle */}
-          <p className="text-2xl md:text-3xl text-gray-600 mb-12 max-w-4xl mx-auto leading-relaxed font-light">
-            המערכת הכי אלגנטית ופשוטה לניהול תורים בישראל.
-            <br />
-            <span className="font-semibold bg-gradient-to-l from-gray-800 to-gray-600 bg-clip-text text-transparent">
-              אתה שולט, הלקוח מבקש - בדיוק כמו שצריך!
-            </span>
-          </p>
-
-          {/* CTA Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-6 mb-16">
-            <button
-              onClick={() => window.location.href = '/auth/signup'}
-              className="group relative overflow-hidden bg-gradient-to-l from-blue-600 via-blue-700 to-indigo-700 text-white px-12 py-6 rounded-3xl text-2xl font-black shadow-2xl shadow-blue-500/30 hover:shadow-3xl hover:shadow-blue-500/50 transition-all duration-500 transform hover:-translate-y-2 active:scale-95"
-            >
-              <div className="absolute inset-0 bg-gradient-to-l from-blue-500 via-blue-600 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <span className="relative flex items-center gap-4">
-                התחל עכשיו בחינם
-                <ArrowLeft className="w-6 h-6 group-hover:-translate-x-2 transition-transform duration-300" />
+      <main>
+        {/* Hero Section */}
+        <section className="py-20 px-4">
+          <div className="container mx-auto text-center">
+            <Badge className="mb-6 bg-blue-100 text-blue-800 border-blue-200">
+              🎯 מערכת תורים אולטרה־פשוטה
+            </Badge>
+            
+            <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6">
+              קבל בקשות תור<br />
+              <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                בקלי קלות
               </span>
-              <div className="absolute inset-0 rounded-3xl bg-gradient-to-l from-transparent via-white/30 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-700 transform translate-x-full group-hover:translate-x-[-200%] skew-x-12"></div>
-            </button>
-
-            <button
-              onClick={() => window.location.href = '/demo'}
-              className="group relative bg-white/90 backdrop-blur-sm border-2 border-gray-200/60 text-gray-700 px-12 py-6 rounded-3xl text-2xl font-bold hover:border-blue-300/60 hover:text-blue-600 hover:bg-white transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:-translate-y-1"
-            >
-              <span className="flex items-center gap-4">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-l from-gray-400 to-gray-500 flex items-center justify-center group-hover:from-blue-500 group-hover:to-indigo-500 transition-all duration-300">
-                  <Play className="w-4 h-4 text-white mr-0.5" />
-                </div>
-                צפה בדמו חי
-              </span>
-            </button>
-          </div>
-
-          {/* Trust Indicators */}
-          <div className="flex flex-wrap justify-center items-center gap-8 text-base text-gray-500">
-            {[
-              { icon: <Shield className="w-5 h-5" />, text: "בחינם עד 10 תורים", color: "from-green-500 to-emerald-500" },
-              { icon: <Zap className="w-5 h-5" />, text: "ללא התחייבות", color: "from-blue-500 to-indigo-500" },
-              { icon: <Check className="w-5 h-5" />, text: "תמיכה בעברית", color: "from-purple-500 to-pink-500" }
-            ].map((item, index) => (
-              <div key={index} className="flex items-center gap-3 hover:text-gray-700 transition-colors duration-200 cursor-pointer">
-                <div className={`w-4 h-4 bg-gradient-to-r ${item.color} rounded-full shadow-lg animate-pulse`}></div>
-                <span className="font-semibold">{item.text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-32 relative">
-        <div className="max-w-7xl mx-auto px-8">
-          <div className="text-center mb-24">
-            <h2 className="text-6xl md:text-7xl font-black bg-gradient-to-l from-gray-900 to-gray-700 bg-clip-text text-transparent mb-8">
-              למה אלפי עצמאים
-              <br />
-              בוחרים ב-MyTor?
-            </h2>
-            <p className="text-2xl text-gray-600 max-w-4xl mx-auto font-light leading-relaxed">
-              כי אנחנו מבינים שלעצמאים צריך פתרון שפשוט עובד, בלי סיבוכים מיותרים
+            </h1>
+            
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
+              לעצמאים קטנים: קוסמטיקאיות, פדיקוריסטיות, מורים פרטיים ומטפלים.
+              <br />שלח קישור → קבל בקשה → אשר ידנית. פשוט כמו שצריך להיות.
             </p>
-          </div>
-
-          <div className="grid lg:grid-cols-3 gap-10">
-            {[
-              {
-                icon: <Check className="w-10 h-10 text-white" />,
-                gradient: "from-green-500 via-emerald-500 to-teal-500",
-                title: "שליטה מלאה בידיך",
-                description: "הלקוח מבקש, אתה מחליט. אין יותר הפתעות או תורים לא רצויים. כל בקשה עוברת דרכך לאישור ואתה קובע את הכללים.",
-                highlight: "אתה המנהל!",
-                highlightColor: "from-green-500 to-emerald-500"
-              },
-              {
-                icon: <Clock className="w-10 h-10 text-white" />,
-                gradient: "from-blue-500 via-indigo-500 to-purple-500",
-                title: "פשטות מקסימלית",
-                description: "לא צריך לשבת שעות על מדריכים או הדרכות. 5 דקות והכל מוכן! הלקוחות שלך יאהבו כמה קל להזמין תור איתך.",
-                highlight: "מוכן תוך 5 דקות",
-                highlightColor: "from-blue-500 to-indigo-500"
-              },
-              {
-                icon: <Phone className="w-10 h-10 text-white" />,
-                gradient: "from-purple-500 via-pink-500 to-rose-500",
-                title: "התראות חכמות",
-                description: "קבל הודעות מיידיות על כל בקשת תור חדשה. באימייל, SMS או וואטסאפ - איך שהכי נוח לך לעבוד.",
-                highlight: "תמיד מעודכן",
-                highlightColor: "from-purple-500 to-pink-500"
-              }
-            ].map((feature, index) => (
-              <div
-                key={index}
-                className="group relative"
-                onMouseEnter={() => setHoveredCard(index)}
-                onMouseLeave={() => setHoveredCard(null)}
+            
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
+              <Button 
+                size="lg"
+                onClick={handleGetStarted}
+                className="bg-blue-600 hover:bg-blue-700 text-lg px-8 py-4"
               >
-                <div className={`absolute inset-0 bg-gradient-to-br ${feature.gradient} rounded-3xl blur-xl opacity-0 group-hover:opacity-20 transition-all duration-500`}></div>
-                <div className={`relative bg-white/95 backdrop-blur-sm p-10 rounded-3xl border border-white/60 shadow-2xl hover:shadow-3xl transition-all duration-500 transform hover:-translate-y-3 ${hoveredCard === index ? 'border-white/80 scale-105' : ''}`}>
-                  <div className={`w-20 h-20 bg-gradient-to-br ${feature.gradient} rounded-3xl flex items-center justify-center mb-8 shadow-xl group-hover:scale-110 group-hover:rotate-3 transition-all duration-500`}>
-                    {feature.icon}
-                  </div>
+                <ArrowRight className="w-5 h-5 ml-2" />
+                התחל חינם
+              </Button>
+              <Button 
+                size="lg"
+                variant="outline"
+                onClick={() => setPricingVisible(true)}
+                className="text-lg px-8 py-4"
+              >
+                ראה תמחור
+              </Button>
+            </div>
 
-                  <h3 className="text-3xl font-black text-gray-900 mb-6 group-hover:text-blue-600 transition-colors duration-300">
-                    {feature.title}
-                  </h3>
-
-                  <p className="text-gray-600 leading-relaxed mb-8 font-light text-lg">
-                    {feature.description}
-                  </p>
-
-                  <div className="inline-flex items-center gap-3 bg-gradient-to-l from-gray-50 to-blue-50 border border-blue-100 text-blue-700 px-5 py-3 rounded-full font-bold shadow-lg">
-                    <div className={`w-3 h-3 bg-gradient-to-r ${feature.highlightColor} rounded-full animate-pulse`}></div>
-                    <span>{feature.highlight}</span>
-                  </div>
-                </div>
+            {/* Trust Indicators */}
+            <div className="flex flex-wrap justify-center items-center gap-8 text-gray-500">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                <span>אלפי עצמאים</span>
               </div>
-            ))}
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5" />
+                <span>מאות תורים ביום</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Star className="w-5 h-5 text-yellow-500" />
+                <span>4.9/5 ציון</span>
+              </div>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* How it works */}
-      <section className="py-32 bg-gradient-to-br from-gray-50/80 via-white to-blue-50/50">
-        <div className="max-w-7xl mx-auto px-8">
-          <div className="text-center mb-24">
-            <h2 className="text-6xl md:text-7xl font-black bg-gradient-to-l from-gray-900 to-gray-700 bg-clip-text text-transparent mb-8">
-              איך זה עובד?
-              <br />
-              פשוט כמו 1-2-3-4
-            </h2>
-            <p className="text-2xl text-gray-600 font-light leading-relaxed">
-              4 צעדים פשוטים ואתה מוכן לקבל תורים בצורה המקצועית ביותר
-            </p>
-          </div>
-
-          <div className="grid lg:grid-cols-4 gap-10">
-            {[
-              {
-                step: "01",
-                title: "הירשם חינם",
-                description: "הרשמה של 30 שניות עם הפרטים הבסיסיים שלך. ללא כרטיס אשראי או התחייבות.",
-                icon: "👋",
-                gradient: "from-blue-500 to-indigo-500"
-              },
-              {
-                step: "02",
-                title: "הגדר זמינות",
-                description: "בחר את הימים והשעות שאתה זמין לקבל לקוחות. פשוט וגמיש.",
-                icon: "📅",
-                gradient: "from-green-500 to-emerald-500"
-              },
-              {
-                step: "03",
-                title: "שתף קישור",
-                description: "שלח ללקוחות את הקישור הייחודי שלך בוואטסאפ או ברשתות חברתיות.",
-                icon: "🔗",
-                gradient: "from-purple-500 to-pink-500"
-              },
-              {
-                step: "04",
-                title: "אשר תורים",
-                description: "קבל בקשות ואשר או דחה בלחיצה אחת. פשוט, מהיר וחכם!",
-                icon: "✅",
-                gradient: "from-orange-500 to-red-500"
-              }
-            ].map((step, index) => (
-              <div key={index} className="group relative text-center">
-                <div className="relative">
-                  <div className={`inline-flex items-center justify-center w-24 h-24 bg-gradient-to-br ${step.gradient} text-white rounded-3xl text-3xl font-black mb-8 shadow-2xl group-hover:scale-110 group-hover:rotate-6 transition-all duration-500`}>
-                    {step.step}
-                  </div>
-                  <div className="absolute -top-3 -right-3 text-5xl transform group-hover:scale-125 transition-transform duration-300">
-                    {step.icon}
-                  </div>
-                </div>
-
-                <h3 className="text-2xl font-black text-gray-900 mb-4 group-hover:text-blue-600 transition-colors duration-300">
-                  {step.title}
-                </h3>
-
-                <p className="text-gray-600 leading-relaxed font-light text-lg">
-                  {step.description}
+        {/* Pricing Section */}
+        {pricingVisible && (
+          <section className="py-20 px-4 bg-white/50">
+            <div className="container mx-auto">
+              <div className="text-center mb-16">
+                <h2 className="text-4xl font-bold text-gray-900 mb-4">
+                  תמחור פשוט ושקוף
+                </h2>
+                <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+                  בחר את התוכנית שמתאימה לך. התחל חינם ושדרג רק כשאתה מוכן.
                 </p>
-
-                {/* Connection line */}
-                {index < 3 && (
-                  <div className="hidden lg:block absolute top-12 left-full w-full h-1 bg-gradient-to-l from-gray-200 to-transparent transform translate-x-6"></div>
-                )}
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Final CTA */}
-      <section className="py-32 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-bl from-blue-600 via-indigo-700 to-purple-800"></div>
-        <div className="absolute inset-0 bg-black/30"></div>
-
-        {/* Animated background elements */}
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-white/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-white/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-
-        <div className="relative max-w-5xl mx-auto px-8 text-center">
-          <h2 className="text-6xl md:text-8xl font-black text-white mb-8 leading-tight">
-            מוכן להתחיל
-            <br />
-            את המהפכה?
-          </h2>
-
-          <p className="text-2xl md:text-3xl text-blue-100 mb-12 leading-relaxed font-light">
-            הצטרף לאלפי עצמאים שכבר גילו איך לנהל תורים בצורה החכמה ביותר.
-            <br />
-            <span className="font-bold text-white">ההרשמה חינמית ואין התחייבות!</span>
-          </p>
-
-          <button
-            onClick={() => window.location.href = '/auth/signup'}
-            className="group relative overflow-hidden bg-white text-blue-700 px-16 py-8 rounded-3xl text-3xl font-black hover:bg-gray-50 transition-all duration-500 shadow-2xl hover:shadow-3xl transform hover:-translate-y-2 active:scale-95 inline-flex items-center gap-6"
-          >
-            <span>התחל עכשיו חינם</span>
-            <ArrowLeft className="w-8 h-8 group-hover:-translate-x-2 transition-transform duration-300" />
-            <div className="absolute inset-0 rounded-3xl bg-gradient-to-l from-transparent via-blue-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-700 transform translate-x-full group-hover:translate-x-[-200%] skew-x-12"></div>
-          </button>
-
-          <div className="mt-12 flex justify-center items-center gap-12 text-blue-200">
-            <div className="flex items-center gap-3">
-              <Shield className="w-6 h-6" />
-              <span className="text-lg font-semibold">ללא כרטיס אשראי</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <Zap className="w-6 h-6" />
-              <span className="text-lg font-semibold">מוכן תוך דקות</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">🇮🇱</span>
-              <span className="text-lg font-semibold">תמיכה בעברית</span>
-            </div>
-          </div>
-        </div>
-      </section>
-      {/* Footer */}
-      <footer className="bg-gray-900 text-white py-16">
-        <div className="max-w-7xl mx-auto px-8">
-          <div className="grid md:grid-cols-4 gap-8 mb-12">
-            <div>
-              <div className="flex items-center gap-3 mb-6">
-                <div className="icon-container bg-gradient-to-br from-blue-500 to-indigo-600 shadow-glow-blue w-10 h-10">
-                  <Calendar className="w-5 h-5 text-white" />
-                </div>
-                <h3 className="text-2xl font-bold-heebo">MyTor</h3>
+              
+              <PricingPlans onUpgrade={handleUpgrade} />
+              
+              <div className="text-center mt-12">
+                <p className="text-gray-600 mb-4">
+                  יש לך שאלות? אנחנו כאן לעזור
+                </p>
+                <Button variant="outline" size="lg">
+                  <MessageSquare className="w-4 h-4 ml-2" />
+                  צור קשר
+                </Button>
               </div>
-              <p className="text-gray-400 leading-relaxed font-light-heebo">
-                מערכת תורים חכמה ופשוטה לעצמאים בישראל.
-                בנויה עם ❤️ במיוחד עבורכם.
+            </div>
+          </section>
+        )}
+
+        {/* Features Section */}
+        <section className="py-20 px-4">
+          <div className="container mx-auto">
+            <div className="text-center mb-16">
+              <h2 className="text-4xl font-bold text-gray-900 mb-4">
+                למה לבחור במייטור?
+              </h2>
+              <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+                פתרון שתוכנן במיוחד לעצמאים שרוצים שליטה מלאה על התורים שלהם
               </p>
             </div>
 
-            {[
-              {
-                title: "מוצר",
-                links: ["איך זה עובד", "תמחור", "דמו חי", "מדריך למתחילים"]
-              },
-              {
-                title: "תמיכה",
-                links: ["מרכז עזרה", "שאלות נפוצות", "צור קשר", "דווח על בעיה"]
-              },
-              {
-                title: "חברה",
-                links: ["אודותינו", "תנאי שימוש", "מדיניות פרטיות", "בלוג"]
-              }
-            ].map((section, index) => (
-              <div key={index}>
-                <h4 className="font-semibold-heebo text-gray-300 mb-4">{section.title}</h4>
-                <ul className="space-y-3">
-                  {section.links.map((link, linkIndex) => (
-                    <li key={linkIndex}>
-                      <a href="#" className="text-gray-400 hover:text-white transition-colors duration-200 font-light-heebo hover:translate-x-1 transform inline-block">
-                        {link}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+            <div className="grid md:grid-cols-3 gap-8">
+              <Card className="text-center p-6 border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Check className="w-8 h-8 text-blue-600" />
+                </div>
+                <h3 className="text-xl font-bold mb-3">שליטה מלאה</h3>
+                <p className="text-gray-600">
+                  הלקוח מבקש, אתה מאשר. אין הזמנות אוטומטיות בלי הסכמתך.
+                </p>
+              </Card>
 
-          <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center">
-            <p className="text-gray-400 font-light-heebo">
-              &copy; 2025 MyTor. כל הזכויות שמורות. עשוי בישראל 🇮🇱
+              <Card className="text-center p-6 border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <ArrowRight className="w-8 h-8 text-green-600" />
+                </div>
+                <h3 className="text-xl font-bold mb-3">פשוט להפליא</h3>
+                <p className="text-gray-600">
+                  קישור אחד → בחירת שעה → בקשת אישור. הכי פשוט שיש.
+                </p>
+              </Card>
+
+              <Card className="text-center p-6 border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+                <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <MessageSquare className="w-8 h-8 text-purple-600" />
+                </div>
+                <h3 className="text-xl font-bold mb-3">ללא אפליקציה</h3>
+                <p className="text-gray-600">
+                  עובד מכל דפדפן, על כל מכשיר. אין צורך להוריד כלום.
+                </p>
+              </Card>
+            </div>
+          </div>
+        </section>
+
+        {/* Social Proof Section */}
+        <section className="py-20 px-4 bg-gradient-to-r from-gray-50 to-blue-50">
+          <div className="container mx-auto">
+            <div className="text-center mb-16">
+              <h2 className="text-4xl font-bold text-gray-900 mb-4">
+                מה אומרים המשתמשים
+              </h2>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-8">
+              <Card className="p-6 border-0 shadow-lg">
+                <div className="flex items-center gap-1 mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 text-yellow-500 fill-current" />
+                  ))}
+                </div>
+                <p className="text-gray-700 mb-4">
+                  "סוף סוף מערכת שמבינה איך אני עובדת! פשוטה ויעילה."
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center">
+                    <span className="text-pink-600 font-bold">ר</span>
+                  </div>
+                  <div>
+                    <p className="font-semibold">רחל כהן</p>
+                    <p className="text-gray-600 text-sm">קוסמטיקאית</p>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6 border-0 shadow-lg">
+                <div className="flex items-center gap-1 mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 text-yellow-500 fill-current" />
+                  ))}
+                </div>
+                <p className="text-gray-700 mb-4">
+                  "החיים שלי השתנו! כל התורים מאורגנים ואני שולט על הכל."
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <span className="text-blue-600 font-bold">ד</span>
+                  </div>
+                  <div>
+                    <p className="font-semibold">דני לוי</p>
+                    <p className="text-gray-600 text-sm">מטפל עיסוי</p>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6 border-0 shadow-lg">
+                <div className="flex items-center gap-1 mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 text-yellow-500 fill-current" />
+                  ))}
+                </div>
+                <p className="text-gray-700 mb-4">
+                  "הלקוחות שלי אוהבים כמה קל לבקש תור. גם אני!"
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                    <span className="text-green-600 font-bold">מ</span>
+                  </div>
+                  <div>
+                    <p className="font-semibold">מיכל אברהם</p>
+                    <p className="text-gray-600 text-sm">מורה פרטית</p>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </div>
+        </section>
+
+        {/* Final CTA */}
+        <section className="py-20 px-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+          <div className="container mx-auto text-center">
+            <h2 className="text-4xl font-bold mb-4">
+              מוכן להתחיל?
+            </h2>
+            <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
+              הצטרף לאלפי עצמאים שכבר משתמשים במייטור ומקבלים יותר תורים
             </p>
-            <div className="flex items-center gap-6 mt-4 md:mt-0">
-              <span className="text-gray-500 text-sm font-medium-heebo">Follow us:</span>
-              <div className="flex gap-4">
-                <div className="w-8 h-8 bg-gray-700 hover:bg-blue-600 rounded-lg flex items-center justify-center transition-colors duration-200 cursor-pointer hover-lift">
-                  <span className="text-xs">📘</span>
+            
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-8">
+              <Button 
+                size="lg"
+                onClick={handleGetStarted}
+                className="bg-white text-blue-600 hover:bg-gray-100 text-lg px-8 py-4"
+              >
+                <ArrowRight className="w-5 h-5 ml-2" />
+                התחל חינם היום
+              </Button>
+              <Button 
+                size="lg"
+                variant="outline"
+                className="border-white text-white hover:bg-white/10 text-lg px-8 py-4"
+                onClick={() => handleUpgrade('premium')}
+              >
+                <Crown className="w-5 h-5 ml-2" />
+                שדרג לפרימיום
+              </Button>
+            </div>
+            
+            <p className="text-blue-200 text-sm">
+              🎁 7 ימי ניסיון חינם לכל התוכניות • ביטול בכל עת
+            </p>
+          </div>
+        </section>
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-gray-900 text-white py-12">
+        <div className="container mx-auto px-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <span className="text-white font-bold">M</span>
                 </div>
-                <div className="w-8 h-8 bg-gray-700 hover:bg-pink-600 rounded-lg flex items-center justify-center transition-colors duration-200 cursor-pointer hover-lift">
-                  <span className="text-xs">📷</span>
-                </div>
-                <div className="w-8 h-8 bg-gray-700 hover:bg-green-600 rounded-lg flex items-center justify-center transition-colors duration-200 cursor-pointer hover-lift">
-                  <span className="text-xs">💬</span>
-                </div>
+                <span className="text-xl font-bold">MyTor</span>
               </div>
+              <p className="text-gray-400 text-sm">
+                מערכת תורים פשוטה ויעילה לעצמאים בישראל
+              </p>
+            </div>
+            
+            <div>
+              <h4 className="font-semibold mb-4">מוצר</h4>
+              <ul className="space-y-2 text-sm text-gray-400">
+                <li><button onClick={() => setPricingVisible(true)} className="hover:text-white">תמחור</button></li>
+                <li><a href="#features" className="hover:text-white">תכונות</a></li>
+                <li><a href="#" className="hover:text-white">דוגמאות</a></li>
+                <li><a href="#" className="hover:text-white">API</a></li>
+              </ul>
+            </div>
+            
+            <div>
+              <h4 className="font-semibold mb-4">תמיכה</h4>
+              <ul className="space-y-2 text-sm text-gray-400">
+                <li><a href="#" className="hover:text-white">מרכז עזרה</a></li>
+                <li><a href="#" className="hover:text-white">צור קשר</a></li>
+                <li><a href="#" className="hover:text-white">מדריכים</a></li>
+                <li><a href="#" className="hover:text-white">סטטוס השירות</a></li>
+              </ul>
+            </div>
+            
+            <div>
+              <h4 className="font-semibold mb-4">חוקי</h4>
+              <ul className="space-y-2 text-sm text-gray-400">
+                <li><a href="/privacy" className="hover:text-white">מדיניות פרטיות</a></li>
+                <li><a href="/terms" className="hover:text-white">תנאי שימוש</a></li>
+                <li><a href="#" className="hover:text-white">עוגיות</a></li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className="border-t border-gray-800 mt-8 pt-8 flex flex-col md:flex-row justify-between items-center">
+            <p className="text-gray-400 text-sm">
+              &copy; 2024 MyTor. כל הזכויות שמורות.
+            </p>
+            <div className="flex items-center gap-4 mt-4 md:mt-0">
+              <p className="text-gray-400 text-sm">עשוי בישראל 🇮🇱</p>
             </div>
           </div>
         </div>

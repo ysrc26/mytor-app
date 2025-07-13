@@ -1,0 +1,54 @@
+// ===================================
+// 🛡️ src/lib/subscription-middleware.ts
+// ===================================
+import { NextRequest, NextResponse } from 'next/server';
+import { authenticateRequest } from './api-auth';
+import { checkUserLimit, incrementAppointmentUsage } from './subscription-utils';
+
+/**
+ * Middleware לבדיקת הגבלות במערכת המנויים - גרסה מתוקנת
+ */
+export async function checkSubscriptionLimit(
+  request: NextRequest,
+  action: 'create_business' | 'create_appointment' | 'send_sms'
+): Promise<NextResponse | null> {
+  try {
+    // אימות משתמש
+    const { user, error: authError } = await authenticateRequest();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'לא מורשה' }, { status: 401 });
+    }
+
+    // בדיקת מגבלה
+    const limitCheck = await checkUserLimit(user.id, action);
+    
+    if (!limitCheck.allowed) {
+      return NextResponse.json(
+        { 
+          error: limitCheck.reason,
+          limit_reached: true,
+          action_required: 'upgrade'
+        }, 
+        { status: 403 }
+      );
+    }
+
+    // אם הכל בסדר, החזר null (המשך לפעולה הרגילה)
+    return null;
+  } catch (error) {
+    console.error('Error in subscription middleware:', error);
+    return NextResponse.json(
+      { error: 'שגיאה בבדיקת מגבלות' }, 
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * עדכון שימוש אחרי יצירת תור
+ */
+export async function updateUsageAfterAction(userId: string, action: string) {
+  if (action === 'create_appointment') {
+    await incrementAppointmentUsage(userId);
+  }
+}

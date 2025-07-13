@@ -227,6 +227,7 @@ export const CalendarView = ({
                         appointments={filteredAppointments}
                         availability={availability}
                         services={services}
+                        unavailableDates={unavailableDates}
                         onCreateAppointment={onCreateAppointment}
                         onEditAppointment={onEditAppointment}
                         onUpdateStatus={onUpdateStatus}

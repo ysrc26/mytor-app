@@ -37,6 +37,12 @@ import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 // Types
 import type { Appointment, Service, Availability, Business } from '@/lib/types';
 
+// Subscription
+import { useSubscription } from '@/hooks/useSubscription';
+import SubscriptionStatus from '@/components/subscription/SubscriptionStatus';
+import UsageWarning from '@/components/subscription/UsageWarning';
+import LimitReachedModal from '@/components/subscription/LimitReachedModal';
+
 export default function BusinessDashboard() {
   const params = useParams();
   const router = useRouter();
@@ -154,6 +160,7 @@ export default function BusinessDashboard() {
   const [calendarView, setCalendarView] = useState<'month' | 'week' | 'day' | 'agenda' | 'work-days'>('work-days');
   const [calendarCurrentDate, setCalendarCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [unavailableDates, setUnavailableDates] = useState<Array<{ date: string; tag?: string; description?: string }>>([]);
 
   // Appointments List State
   const [appointmentsListFilter, setAppointmentsListFilter] = useState<'all' | 'pending' | 'confirmed' | 'declined' | 'cancelled'>('all');
@@ -162,6 +169,11 @@ export default function BusinessDashboard() {
 
   // UI State
   const [copied, setCopied] = useState(false);
+
+  // Subscription State
+  const { subscription, isPremium, checkLimit } = useSubscription();
+  const [limitModalOpen, setLimitModalOpen] = useState(false);
+  const [limitType, setLimitType] = useState<'businesses' | 'appointments' | 'sms'>('appointments');
 
   // ===================================
   // 🔧 Computed Values
@@ -233,6 +245,14 @@ export default function BusinessDashboard() {
 
   // Create Appointment Modal Handler
   const handleCreateAppointment = async (appointmentData: any) => {
+    // בדיקת מגבלה לפני יצירת תור
+    const limitCheck = await checkLimit('create_appointment');
+    if (!limitCheck.allowed) {
+      setLimitType('appointments');
+      setLimitModalOpen(true);
+      throw new Error(limitCheck.reason);
+    }
+
     try {
       await createAppointment(appointmentData);
       showSuccessToast('התור נוצר בהצלחה');
@@ -240,9 +260,14 @@ export default function BusinessDashboard() {
       setCreateAppointmentData({});
     } catch (error) {
       console.error('Error creating appointment:', error);
+      if (error instanceof Error && error.message.includes('מגבלה')) {
+        setLimitType('appointments');
+        setLimitModalOpen(true);
+      }
       showErrorToast('שגיאה ביצירת התור');
     }
   };
+
 
   // Edit Appointment Modal Handler
   const handleUpdateAppointment = async (appointmentData: any) => {
@@ -288,6 +313,25 @@ export default function BusinessDashboard() {
       setCalendarView(userPreferences.default_calendar_view);
     }
   }, [userPreferences, preferencesLoading]);
+
+  // הוסף useEffect לטעינת תאריכים לא זמינים
+  useEffect(() => {
+    const fetchUnavailableDates = async () => {
+      try {
+        const response = await fetch('/api/unavailable');
+        if (response.ok) {
+          const data = await response.json();
+          setUnavailableDates(data);
+        }
+      } catch (error) {
+        console.error('Error fetching unavailable dates:', error);
+      }
+    };
+
+    if (businessId) {
+      fetchUnavailableDates();
+    }
+  }, [businessId]);
 
   // ===================================
   // 🔧 Loading & Error States
@@ -340,6 +384,26 @@ export default function BusinessDashboard() {
     );
   }
 
+  const handleUpgrade = async () => {
+    setLimitModalOpen(false);
+
+    try {
+      const response = await fetch('/api/subscriptions/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: 'premium' })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.url) {
+        window.location.href = data.url;
+      }
+    } catch (error) {
+      showErrorToast('שגיאה ביצירת דף התשלום');
+    }
+  };
+
   // ===================================
   // 🎨 Main Render
   // ===================================
@@ -386,6 +450,8 @@ export default function BusinessDashboard() {
 
         {/* Main Dashboard Content - Centered */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {/* Usage Warning - הוספה חדשה */}
+          <UsageWarning />
           {/* Stats Cards
           <div className="mb-8">
             <StatsCards
@@ -447,31 +513,62 @@ export default function BusinessDashboard() {
               )}
 
               {activeTab === 'premium' && (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 text-yellow-500">
-                    <svg className="w-full h-full" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                    מעבר לחבילה פרימיום
-                  </h3>
-                  <p className="text-gray-600 mb-4">
-                    קבל גישה לתכונות מתקדמות: SMS התראות, דוחות מפורטים, חיבור לגוגל קלנדר ועוד
-                  </p>
-                  <div className="space-y-3">
-                    <button className="px-6 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors">
-                      שדרג עכשיו - רק ₪9.90 לחודש
-                    </button>
-                    <p className="text-sm text-gray-500">
-                      ניסיון חינם ל-14 יום, ביטול בכל עת
-                    </p>
-                  </div>
+                <div className="space-y-6">
+                  {isPremium ? (
+                    <div className="text-center py-12">
+                      <div className="w-16 h-16 mx-auto mb-4 text-yellow-500">
+                        <svg className="w-full h-full" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                        אתה כבר פרימיום! 🎉
+                      </h3>
+                      <p className="text-gray-600 mb-4">
+                        נהנה מכל התכונות המתקדמות שלנו
+                      </p>
+                      <SubscriptionStatus onUpgrade={() => { }} />
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <div className="w-16 h-16 mx-auto mb-4 text-yellow-500">
+                        <svg className="w-full h-full" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                        מעבר לחבילה פרימיום
+                      </h3>
+                      <p className="text-gray-600 mb-4">
+                        קבל גישה לתכונות מתקדמות: SMS התראות, דוחות מפורטים, חיבור לגוגל קלנדר ועוד
+                      </p>
+                      <div className="space-y-3">
+                        <button
+                          onClick={handleUpgrade}
+                          className="px-6 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+                        >
+                          שדרג עכשיו - רק ₪19.90 לחודש
+                        </button>
+                        <p className="text-sm text-gray-500">
+                          ניסיון חינם ל-7 יום, ביטול בכל עת
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
         </main>
+        {/* Subscription Modal - הוספה חדשה */}
+        <LimitReachedModal
+          isOpen={limitModalOpen}
+          onClose={() => setLimitModalOpen(false)}
+          onUpgrade={handleUpgrade}
+          limitType={limitType}
+          currentCount={subscription?.monthly_appointments_used}
+          maxCount={subscription?.monthly_limit}
+        />
       </div>
 
       {/* Modals */}

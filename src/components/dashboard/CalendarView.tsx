@@ -19,6 +19,7 @@ interface CalendarViewProps {
     availability: Availability[];
     services: Service[];
     businessId: string;
+    unavailableDates?: Array<{ date: string; tag?: string; description?: string }>;
     initialView?: CalendarViewMode;
     onCreateAppointment?: (date: string, time: string) => void;
     onEditAppointment?: (appointment: Appointment) => void;
@@ -47,6 +48,7 @@ export const CalendarView = ({
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [showAvailabilityOnly, setShowAvailabilityOnly] = useState(false);
     const [selectedServices, setSelectedServices] = useState<Set<string>>(new Set());
+    const [unavailableDates, setUnavailableDates] = useState([]);
 
     // עדכון זמן נוכחי כל דקה
     useEffect(() => {
@@ -55,6 +57,13 @@ export const CalendarView = ({
 
         const timer = setInterval(updateCurrentTime, 60000);
         return () => clearInterval(timer);
+    }, []);
+
+    // שלוף תאריכים חסומים
+    useEffect(() => {
+        fetch('/api/unavailable')
+            .then(res => res.json())
+            .then(data => setUnavailableDates(data));
     }, []);
 
     // ===================================
@@ -260,6 +269,7 @@ export const CalendarView = ({
                         services={services}
                         selectedDate={selectedDate}
                         onDateSelect={setSelectedDate}
+                        unavailableDates={unavailableDates}
                         showAvailabilityOnly={showAvailabilityOnly}
                         onCreateAppointment={onCreateAppointment}
                         onEditAppointment={onEditAppointment}
@@ -601,6 +611,12 @@ const CalendarFilters = ({
 // 📅 Month View Component
 // ===================================
 
+interface UnavailableDate {
+    date: string;
+    tag?: string;
+    description?: string;
+}
+
 interface MonthViewProps {
     currentDate: Date;
     appointments: Appointment[];
@@ -609,6 +625,7 @@ interface MonthViewProps {
     selectedDate: Date | null;
     onDateSelect: (date: Date) => void;
     showAvailabilityOnly: boolean;
+    unavailableDates?: UnavailableDate[];
     onCreateAppointment?: (date: string, time: string) => void;
     onEditAppointment?: (appointment: Appointment) => void;
 }
@@ -622,7 +639,8 @@ const MonthView = ({
     onDateSelect,
     showAvailabilityOnly,
     onCreateAppointment,
-    onEditAppointment
+    onEditAppointment,
+    unavailableDates
 }: MonthViewProps) => {
     const monthData = useMemo(() => {
         const year = currentDate.getFullYear();
@@ -685,6 +703,12 @@ const MonthView = ({
         return date.getMonth() === currentDate.getMonth();
     };
 
+    // בדיקה אם התאריך חסום
+    const isDateBlocked = (date: Date) => {
+        const dateStr = timeUtils.dateToLocalString(date);
+        return unavailableDates?.find(blocked => blocked.date === dateStr);
+    };
+
     const weekDays = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
 
     return (
@@ -706,63 +730,83 @@ const MonthView = ({
                     const todayDate = isToday(date);
                     const currentMonth = isCurrentMonth(date);
                     const isSelected = selectedDate?.toDateString() === date.toDateString();
+                    const blockedDate = isDateBlocked(date);
 
                     return (
                         <div
                             key={index}
-                            onClick={() => onDateSelect(date)}
+                            onClick={() => !blockedDate && onDateSelect(date)}
                             className={`
-                                min-h-24 p-2 border border-gray-100 transition-all duration-200
-                                ${currentMonth ? 'bg-white' : 'bg-gray-50'}
-                                ${todayDate ? 'border-blue-400 bg-blue-50' : ''}
-                                ${isSelected ? 'ring-2 ring-blue-500 bg-blue-100' : ''}
-                                ${!isPastTime(date) ? 'cursor-pointer hover:bg-gray-50' : 'cursor-pointer opacity-60'}
+                                relative min-h-24 p-2 border border-gray-100 transition-all duration-200
+                                ${blockedDate ? 'bg-slate-100' : currentMonth ? 'bg-white' : 'bg-gray-50'}
+                                ${todayDate && !blockedDate ? 'border-blue-400 bg-blue-50' : ''}
+                                ${isSelected && !blockedDate ? 'ring-2 ring-blue-500 bg-blue-100' : ''}
+                                ${!isPastTime(date) && !blockedDate ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default'}
                                 ${!currentMonth ? 'opacity-60' : ''}
+                                ${blockedDate ? 'border-slate-300' : ''}
                             `}
                         >
-                            {/* Date Number */}
-                            <div className={`text-sm font-medium mb-1 ${todayDate ? 'text-blue-600' :
-                                currentMonth ? 'text-gray-900' : 'text-gray-400'
-                                }`}>
-                                {date.getDate()}
-                            </div>
-
-                            {/* Availability Indicator */}
-                            {isAvailable && (
-                                <div className="w-2 h-2 bg-green-400 rounded-full mb-1"></div>
-                            )}
-
-                            {/* Appointments */}
-                            {!showAvailabilityOnly && (
-                                <div className="space-y-1">
-                                    {dayAppointments.slice(0, 3).map((apt) => {
-                                        const service = services.find(s => s.id === apt.service_id);
-                                        return (
-                                            <div
-                                                key={apt.id}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onEditAppointment?.(apt);
-                                                }}
-                                                className={`
-                          text-xs px-1 py-0.5 rounded truncate cursor-pointer
-                          ${apt.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                                                        apt.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                                                            apt.status === 'declined' ? 'bg-red-100 text-red-700' :
-                                                                'bg-gray-100 text-gray-700'}
-                        `}
-                                                title={`${apt.start_time} - ${apt.client_name}${service ? ` (${service.name})` : ''}`}
-                                            >
-                                                {apt.start_time} {apt.client_name}
+                            {/* אם התאריך חסום - הצג רק את מידע החסימה */}
+                            {blockedDate ? (
+                                <div className="absolute inset-0 bg-slate-200/95 border border-slate-400 rounded-md flex flex-col items-center justify-center z-10">
+                                    <div className="text-center px-2 py-1">
+                                        <div className="text-sm font-medium text-slate-700">
+                                            {blockedDate.tag || '🚫 יום חסום'}
+                                        </div>
+                                        {blockedDate.description && (
+                                            <div className="text-xs mt-1 text-slate-600 leading-tight">
+                                                {blockedDate.description}
                                             </div>
-                                        );
-                                    })}
-                                    {dayAppointments.length > 3 && (
-                                        <div className="text-xs text-gray-500 px-1">
-                                            +{dayAppointments.length - 3} נוספים
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Date Number */}
+                                    <div className={`text-sm font-medium mb-1 ${todayDate ? 'text-blue-600' :
+                                        currentMonth ? 'text-gray-900' : 'text-gray-400'
+                                        }`}>
+                                        {date.getDate()}
+                                    </div>
+
+                                    {/* Availability Indicator */}
+                                    {isAvailable && (
+                                        <div className="w-2 h-2 bg-green-400 rounded-full mb-1"></div>
+                                    )}
+
+                                    {/* Appointments */}
+                                    {!showAvailabilityOnly && (
+                                        <div className="space-y-1">
+                                            {dayAppointments.slice(0, 3).map((apt) => {
+                                                const service = services.find(s => s.id === apt.service_id);
+                                                return (
+                                                    <div
+                                                        key={apt.id}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            onEditAppointment?.(apt);
+                                                        }}
+                                                        className={`
+                                                            text-xs px-1 py-0.5 rounded truncate cursor-pointer
+                                                            ${apt.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                                                                apt.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                                                    apt.status === 'declined' ? 'bg-red-100 text-red-700' :
+                                                                        'bg-gray-100 text-gray-700'}
+                                                        `}
+                                                        title={`${apt.start_time} - ${apt.client_name}${service ? ` (${service.name})` : ''}`}
+                                                    >
+                                                        {apt.start_time} {apt.client_name}
+                                                    </div>
+                                                );
+                                            })}
+                                            {dayAppointments.length > 3 && (
+                                                <div className="text-xs text-gray-500 px-1">
+                                                    +{dayAppointments.length - 3} נוספים
+                                                </div>
+                                            )}
                                         </div>
                                     )}
-                                </div>
+                                </>
                             )}
                         </div>
                     );
@@ -774,10 +818,6 @@ const MonthView = ({
 
 // ===================================
 // 📅 Week View Component
-// ===================================
-
-// ===================================
-// 📅 Week View Component - גרסה משופרת
 // ===================================
 
 interface WeekViewProps {
@@ -1079,9 +1119,9 @@ const WeekView = ({
     );
 };
 
-// ===================================
-// 💼 Work Days View Component - גרסה משופרת
-// ===================================
+// =============================
+// 💼 Work Days View Component
+// =============================
 
 interface WorkDaysViewProps {
     currentDate: Date;
@@ -1811,14 +1851,21 @@ const getWeekStart = (date: Date) => {
 };
 
 // ===================================
-// 📋 Day View Component - גרסה משופרת
+// 📋 Day View Component
 // ===================================
+
+interface UnavailableDate {
+    date: string;
+    tag?: string;
+    description?: string;
+}
 
 interface DayViewProps {
     currentDate: Date;
     appointments: Appointment[]; // 👈 מקבל ישירות מ-CalendarView
     availability: Availability[];
     services: Service[];
+    unavailableDates?: UnavailableDate[];
     onCreateAppointment?: (date: string, time: string) => void;
     onEditAppointment?: (appointment: Appointment) => void;
     onUpdateStatus?: (appointmentId: string, status: 'confirmed' | 'declined') => void;
@@ -1829,6 +1876,7 @@ const DayView = ({
     appointments, // 👈 זה הנתונים שמגיעים מ-CalendarView
     availability,
     services,
+    unavailableDates,
     onCreateAppointment,
     onEditAppointment,
     onUpdateStatus
@@ -1846,6 +1894,12 @@ const DayView = ({
         return () => clearInterval(timer);
     }, []);
 
+    // בדיקה אם התאריך חסום
+    const isDateBlocked = useMemo(() => {
+        const dateStr = timeUtils.dateToLocalString(currentDate);
+        return unavailableDates?.find(blocked => blocked.date === dateStr);
+    }, [currentDate, unavailableDates]);
+
     // סנכרון גלילה בין התוכן לעמודת השעות
     const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
         if (timeColumnRef.current) {
@@ -1855,7 +1909,7 @@ const DayView = ({
 
     // גלילה לשעה הנוכחית
     useEffect(() => {
-        if (!scrollContainerRef.current) return;
+        if (!scrollContainerRef.current || isDateBlocked) return;
 
         const now = new Date();
         const currentHour = now.getHours();
@@ -1868,14 +1922,16 @@ const DayView = ({
                 behavior: 'smooth'
             });
         }, 300);
-    }, [currentDate]);
+    }, [currentDate, isDateBlocked]);
 
     // 🚀 חישוב מטמון התורים ליום הזה
     const dayAppointmentLayouts = useMemo(() => {
+        if (isDateBlocked) return [];
+        
         const dateStr = dateToLocalString(currentDate);
         const dayAppointments = appointments.filter((apt: Appointment) => apt.date === dateStr);
         return AppointmentPositioning.calculateDayLayout(dayAppointments);
-    }, [appointments, currentDate]);
+    }, [appointments, currentDate, isDateBlocked]);
 
     // יצירת כל רבעי השעה (0:00-23:45)
     const timeSlots = useMemo(() => {
@@ -1897,12 +1953,16 @@ const DayView = ({
 
     // סינון תורים ליום הנוכחי
     const dayAppointments = useMemo(() => {
+        if (isDateBlocked) return [];
+        
         const dateStr = dateToLocalString(currentDate);
         return appointments.filter((apt: Appointment) => apt.date === dateStr);
-    }, [appointments, currentDate]);
+    }, [appointments, currentDate, isDateBlocked]);
 
     // בדיקה אם זמן זמין
     const isTimeAvailable = (time: string) => {
+        if (isDateBlocked) return false;
+        
         const dayOfWeek = currentDate.getDay();
         const [hour, minute] = time.split(':').map(Number);
         const timeMinutes = hour * 60 + minute;
@@ -1935,22 +1995,36 @@ const DayView = ({
     };
 
     const todayCheck = isToday(currentDate);
-    const dateStr = dateToLocalString(currentDate); 
+    const dateStr = dateToLocalString(currentDate);
 
     return (
         <div className="h-[600px] bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col">
             {/* כותרת באמצע */}
-            <div className="border-b border-gray-200 p-4 bg-gray-50 text-center">
-                <h3 className={`text-lg font-semibold ${todayCheck ? 'text-blue-600' : 'text-gray-900'}`}>
+            <div className={`border-b border-gray-200 p-4 text-center ${isDateBlocked ? 'bg-slate-100' : 'bg-gray-50'}`}>
+                <h3 className={`text-lg font-semibold ${todayCheck && !isDateBlocked ? 'text-blue-600' : isDateBlocked ? 'text-slate-700' : 'text-gray-900'}`}>
                     {currentDate.toLocaleDateString('he-IL', {
                         weekday: 'long',
                         day: 'numeric',
                         month: 'long'
                     })}
                 </h3>
-                <p className="text-sm text-gray-500 mt-1">
-                    {dayAppointments.length} תורים מתוכננים
-                </p>
+                
+                {isDateBlocked ? (
+                    <div className="mt-2 p-3 bg-slate-200 rounded-lg border border-slate-300">
+                        <div className="text-slate-700 font-medium">
+                            🚫 {isDateBlocked.tag || 'יום לא זמין'}
+                        </div>
+                        {isDateBlocked.description && (
+                            <div className="text-sm text-slate-600 mt-1">
+                                {isDateBlocked.description}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <p className="text-sm text-gray-500 mt-1">
+                        {dayAppointments.length} תורים מתוכננים
+                    </p>
+                )}
             </div>
 
             {/* תוכן ראשי */}
@@ -1959,10 +2033,30 @@ const DayView = ({
                 <div
                     ref={scrollContainerRef}
                     onScroll={handleScroll}
-                    className="flex-1 overflow-y-auto relative bg-white order-1"
+                    className={`flex-1 overflow-y-auto relative order-1 ${isDateBlocked ? 'bg-slate-200' : 'bg-white'}`}
                 >
+                    {/* אם היום לא זמין - כסה את כל התצוגה */}
+                    {isDateBlocked ? (
+                        <div className="absolute inset-0 bg-slate-300/90 z-50 flex items-center justify-center pointer-events-none">
+                            <div className="text-center p-8 bg-slate-200 rounded-xl border-2 border-slate-400 shadow-lg">
+                                <div className="text-4xl mb-4">🚫</div>
+                                <div className="text-xl font-bold text-slate-700 mb-3">
+                                    {isDateBlocked.tag || 'יום לא זמין'}
+                                </div>
+                                {isDateBlocked.description && (
+                                    <div className="text-slate-600 mb-4">
+                                        {isDateBlocked.description}
+                                    </div>
+                                )}
+                                <div className="text-sm text-slate-500">
+                                    לא ניתן לקבוע תורים ביום זה
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
+
                     {/* קו השעה הנוכחית */}
-                    {todayCheck && (
+                    {todayCheck && !isDateBlocked && (
                         <div
                             className="absolute left-0 right-4 h-0.5 bg-red-500 z-20"
                             style={{ top: `${getCurrentTimePosition()}px` }}
@@ -1980,21 +2074,23 @@ const DayView = ({
                                 <div
                                     key={slot.time}
                                     onClick={() => {
-                                        if (onCreateAppointment && !isPastTime(currentDate, slot.time)) {
+                                        if (onCreateAppointment && !isPastTime(currentDate, slot.time) && !isDateBlocked) {
                                             onCreateAppointment(dateStr, slot.time);
                                         }
                                     }}
                                     className={`
-                                        h-4 border-b border-gray-100 cursor-pointer transition-colors relative
+                                        h-4 border-b border-gray-100 transition-colors relative
                                         ${slot.isHourStart ? 'border-t border-gray-200' : ''}
-                                        ${isAvailable
-                                            ? 'bg-white hover:bg-green-50'
-                                            : 'bg-gray-50 hover:bg-gray-100'
+                                        ${isDateBlocked 
+                                            ? 'bg-slate-100 cursor-not-allowed'
+                                            : isAvailable
+                                                ? 'bg-white hover:bg-green-50 cursor-pointer'
+                                                : 'bg-gray-50 hover:bg-gray-100 cursor-pointer'
                                         }
                                     `}
                                 >
                                     {/* הצגת תורים עם תמיכה בחפיפות */}
-                                    {(() => {
+                                    {!isDateBlocked && (() => {
                                         return dayAppointmentLayouts
                                             .filter(layout => {
                                                 const startTime = timeUtils.extractStartTime(layout.appointment);
@@ -2039,12 +2135,14 @@ const DayView = ({
                                             });
                                     })()}
 
-                                    {/* הצגת זמן בהובר - רק אם אין תור */}
-                                    <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                                        <span className="text-xs text-gray-600 bg-white px-2 py-1 rounded shadow-sm">
-                                            {slot.time}
-                                        </span>
-                                    </div>
+                                    {/* הצגת זמן בהובר - רק אם אין תור ולא חסום */}
+                                    {!isDateBlocked && (
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                            <span className="text-xs text-gray-600 bg-white px-2 py-1 rounded shadow-sm">
+                                                {slot.time}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}
@@ -2054,7 +2152,7 @@ const DayView = ({
                 {/* עמודת שעות - מימין */}
                 <div
                     ref={timeColumnRef}
-                    className="w-16 border-l border-gray-200 bg-gray-50 overflow-y-auto order-2"
+                    className={`w-16 border-l border-gray-200 overflow-y-auto order-2 ${isDateBlocked ? 'bg-slate-100' : 'bg-gray-50'}`}
                     style={{ overflowY: 'hidden' }}
                 >
                     {Array.from({ length: 24 }, (_, hour) => (
@@ -2062,7 +2160,7 @@ const DayView = ({
                             key={hour}
                             className="h-16 flex items-start justify-center pt-1 border-b border-gray-100"
                         >
-                            <span className="text-xs text-gray-500 font-mono">
+                            <span className={`text-xs font-mono ${isDateBlocked ? 'text-slate-400' : 'text-gray-500'}`}>
                                 {hour.toString().padStart(2, '0')}:00
                             </span>
                         </div>
@@ -2072,5 +2170,3 @@ const DayView = ({
         </div>
     );
 };
-
-export default DayView;

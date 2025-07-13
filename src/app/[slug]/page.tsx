@@ -29,11 +29,13 @@ import {
 } from 'lucide-react';
 
 import { Business, Service, Availability } from '@/lib/types';
+import { supabasePublic } from '@/lib/supabase-public';
 
 interface BusinessPageData {
   business: Business;
   services: Service[];
   availability: Availability[];
+  unavailableDates?: string[];
 }
 
 interface AppointmentRequest {
@@ -96,7 +98,22 @@ export default function BusinessPage() {
         if (!response.ok) {
           throw new Error('עסק לא נמצא');
         }
+
         const data = await response.json();
+
+        //
+        // שלוף ישירות עם business_id שכבר יש לך
+        const { data: blockedDates } = await supabasePublic
+          .from('public_unavailable_dates')
+          .select('date')
+          .eq('business_id', data.business.id);
+        
+        if (blockedDates) {
+          console.log('🚫 Blocked dates loaded:',blockedDates);
+        }
+
+        data.unavailableDates = blockedDates?.map(d => d.date) || [];
+
         setBusinessData(data);
 
         // Auto-select single service but stay on service step
@@ -152,6 +169,15 @@ export default function BusinessPage() {
 
   const isDateAvailable = (date: Date): boolean => {
     if (!businessData?.availability) return false;
+
+    // בדיקה שהתאריך לא חסום
+    const dateStr = formatDateForAPI(date);
+    console.log('🔍 Checking date availability:', { dateStr, unavailableDates: businessData?.unavailableDates });
+
+    if (businessData.unavailableDates?.includes(dateStr)) {
+      console.log('❌ Date is blocked!');
+      return false;
+    }
 
     const dayOfWeek = date.getDay();
     return businessData.availability.some(slot =>

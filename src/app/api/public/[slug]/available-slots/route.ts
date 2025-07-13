@@ -7,16 +7,16 @@ import { timeUtils } from '@/lib/time-utils';
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
 
   const { createClient } = await import('@supabase/supabase-js');
-    const supabaseServer = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
+  const supabaseServer = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
       }
-    );
+    }
+  );
 
   try {
     const { slug } = await params;
@@ -119,47 +119,20 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }, { status: 200 });
     }
 
-    // בדיקת תאריכים לא זמינים - בדוק בשני המקומות (business_id וגם user_id)
-    let unavailableDates;
-    try {
-      // נסה קודם עם business_id
-      const { data: businessUnavailable, error: businessUnavailableError } = await supabasePublic
-        .from('unavailable_dates')
-        .select('date')
-        .eq('business_id', business.id)
-        .eq('date', date);
+    // בדיקת תאריכים חסומים
+    const { data: blockedDates, error: blockedError } = await supabasePublic
+      .from('unavailable_dates')
+      .select('date')
+      .or(`business_id.eq.${business.id},user_id.eq.${business.user_id}`)
+      .eq('date', date);
 
-      if (!businessUnavailableError && businessUnavailable && businessUnavailable.length > 0) {
-        unavailableDates = businessUnavailable;
-      } else {
-        // נסה עם user_id אם לא נמצא עם business_id
-        const { data: userUnavailable, error: userUnavailableError } = await supabasePublic
-          .from('unavailable_dates')
-          .select('date')
-          .eq('user_id', business.user_id)
-          .eq('date', date);
-
-        if (userUnavailableError) {
-          console.error('❌ Unavailable dates query error:', userUnavailableError);
-          return NextResponse.json({ error: 'שגיאה בבדיקת תאריכים לא זמינים' }, { status: 500 });
-        }
-
-        unavailableDates = userUnavailable || [];
-      }
-
-      console.log('🚫 Unavailable dates check:', {
-        business_id: business.id,
-        user_id: business.user_id,
-        date,
-        unavailableDates
-      });
-    } catch (unavailableFetchError) {
-      console.error('💥 Unexpected error checking unavailable dates:', unavailableFetchError);
+    if (blockedError) {
+      console.error('Error checking blocked dates:', blockedError);
       return NextResponse.json({ error: 'שגיאה בבדיקת תאריכים חסומים' }, { status: 500 });
     }
 
     // אם התאריך חסום
-    if (unavailableDates && unavailableDates.length > 0) {
+    if (blockedDates && blockedDates.length > 0) {
       console.log('🚫 Date is blocked');
       return NextResponse.json({
         date,
@@ -172,7 +145,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         total_slots: 0
       }, { status: 200 });
     }
-
+    
     // שליפת תורים קיימים לתאריך זה
     const { data: existingAppointments, error: appointmentsError } = await supabaseServer
       .from('appointments')
@@ -202,7 +175,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
       while (currentTime < endTime) {
         const timeString = currentTime.toTimeString().slice(0, 5);
-        
+
         // בדיקה אם השעה הזו תתאים לשירות
         const slotEndTime = new Date(currentTime);
         slotEndTime.setMinutes(slotEndTime.getMinutes() + service.duration_minutes);

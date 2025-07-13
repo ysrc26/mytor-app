@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import { useRouter } from 'next/navigation';
 import { User, Business } from '@/lib/types';
+import { useSubscription } from '@/hooks/useSubscription';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -47,6 +48,11 @@ export default function MainDashboard() {
 
   const router = useRouter();
   const supabase = createClient();
+
+  const { limits, getSubscriptionTierLabel } = useSubscription();
+  const isPremium = limits?.subscription_tier !== 'free';
+  const subscriptionDisplay = limits ? getSubscriptionTierLabel(limits.subscription_tier) : 'טוען...';
+  const canCreateMore = isPremium || businesses.length === 0;
 
   useEffect(() => {
     checkAuth();
@@ -172,9 +178,6 @@ export default function MainDashboard() {
 
   if (!user) return null;
 
-  const isPremium = false; // TODO: בדיקת סטטוס premium
-  const canCreateMore = isPremium || businesses.length === 0;
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" style={{ fontFamily: "'Heebo', 'Assistant', sans-serif", direction: 'rtl' }}>
       {/* Header */}
@@ -292,7 +295,7 @@ export default function MainDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 font-medium">חבילה</p>
-                <p className="text-xl font-bold text-gray-600">{isPremium ? 'פרימיום' : 'חינם'}</p>
+                <p className="text-xl font-bold text-gray-600">{subscriptionDisplay}</p>
               </div>
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isPremium ? 'bg-yellow-100' : 'bg-gray-100'}`}>
                 <Crown className={`w-6 h-6 ${isPremium ? 'text-yellow-600' : 'text-gray-600'}`} />

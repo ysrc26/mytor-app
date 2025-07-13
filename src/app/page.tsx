@@ -1,6 +1,7 @@
 // src/app/page.tsx
 'use client';
 import { Calendar, Check, Clock, Phone, ArrowLeft, Sparkles, Shield, Zap, Play } from 'lucide-react';
+import PricingPlans from '@/components/pricing/PricingPlans';
 import { useState } from 'react';
 
 export default function BeautifulHomepage() {
@@ -135,6 +136,13 @@ export default function BeautifulHomepage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+      
+       {/* Pricing Section */}
+      <section className="py-32 relative bg-gradient-to-br from-gray-50 via-white to-blue-50">
+        <div className="max-w-7xl mx-auto px-8">
+          <PricingPlans />
         </div>
       </section>
 

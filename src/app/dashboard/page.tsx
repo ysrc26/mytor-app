@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase-client';
 import { useRouter } from 'next/navigation';
 import { User, Business } from '@/lib/types';
 import { useSubscription } from '@/hooks/useSubscription';
+import { DevSubscriptionSwitcher } from '@/components/dev/DevSubscriptionSwitcher';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -230,6 +231,11 @@ export default function MainDashboard() {
           </div>
         </div>
       </header>
+
+      {/* Dev Tools - כפתורי הבדיקה */}
+      <div className="mb-8">
+        <DevSubscriptionSwitcher />
+      </div>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* הודעות */}
